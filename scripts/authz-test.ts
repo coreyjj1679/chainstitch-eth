@@ -160,7 +160,11 @@ async function main() {
     403,
     "viewer cannot save blocks",
   );
-  ok((await dal.recipes.listRecipes(viewer, project.id)).length === 1, "viewer lists recipes");
+  ok(
+    // The project also carries the seeded tutorial recipe; check ours is there.
+    (await dal.recipes.listRecipes(viewer, project.id)).some((r) => r.id === recipe.id),
+    "viewer lists recipes",
+  );
   await expectStatus(
     dal.recipes.createRecipe(viewer, project.id, {
       name: "x",

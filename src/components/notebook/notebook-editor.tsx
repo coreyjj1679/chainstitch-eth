@@ -46,7 +46,12 @@ import { useMe } from "@/lib/hooks";
 import { runBlock, shortError } from "@/lib/engine";
 import { evaluateCondition } from "@/lib/condition";
 import { interpolate } from "@/lib/variables";
-import { blockLabel, executionOrder, isGroupType } from "@/lib/block-label";
+import {
+  blockLabel,
+  executionOrder,
+  isBlockConfigured,
+  isGroupType,
+} from "@/lib/block-label";
 import { parseBigIntSafe, stringifyBigIntSafe } from "@/lib/serialize";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
 import { chainForProject } from "@/components/wallet/project-web3-provider";
@@ -565,15 +570,17 @@ export function NotebookEditor({
 
       const steps = executionOrder(recipe.blocks);
       const rows: Record<string, unknown> = {};
-      const skip = new Set<string>();
+      /** Steps to pass over, with the row text explaining why. */
+      const skip = new Map<string, string>();
       let ran = 0;
       let skipped = 0;
       let error: string | null = null;
 
       for (const [index, step] of steps.entries()) {
         const label = `${index + 1}. ${blockLabel(step, contracts)}`;
-        if (skip.has(step.id)) {
-          rows[label] = "skipped — condition was false";
+        const skipReason = skip.get(step.id);
+        if (skipReason) {
+          rows[label] = skipReason;
           skipped++;
           continue;
         }
@@ -587,6 +594,16 @@ export function NotebookEditor({
         }
         if (step.type === "markdown" || step.type === "sender") continue;
         if (step.type === "if") {
+          // Same leniency as Run all: a half-built condition group skips
+          // itself and its children instead of failing the recipe.
+          if (!isBlockConfigured(step)) {
+            rows[label] = "skipped — condition not set";
+            skipped++;
+            for (const child of recipe.blocks.filter((b) => b.parentId === step.id)) {
+              skip.set(child.id, "skipped — condition group not configured");
+            }
+            continue;
+          }
           try {
             const verdict = evaluateCondition(
               (step.config as IfConfig).condition ?? "",
@@ -595,7 +612,7 @@ export function NotebookEditor({
             rows[label] = verdict.resolved;
             if (!verdict.result) {
               for (const child of recipe.blocks.filter((b) => b.parentId === step.id)) {
-                skip.add(child.id);
+                skip.set(child.id, "skipped — condition was false");
               }
             }
           } catch (e) {
@@ -606,6 +623,11 @@ export function NotebookEditor({
           continue;
         }
         if (step.type !== "read" && step.type !== "write" && step.type !== "rpc") {
+          continue;
+        }
+        if (!isBlockConfigured(step)) {
+          rows[label] = "skipped — step not configured";
+          skipped++;
           continue;
         }
         if (step.runWhen?.trim()) {
@@ -734,9 +756,26 @@ export function NotebookEditor({
     [setResult],
   );
 
-  /** Mark a false condition's runnable children as skipped (not an error). */
+  /**
+   * Batch runs skip half-built cells instead of aborting on them (running a
+   * cell directly still surfaces the real "configure me" error).
+   */
+  const skipUnconfigured = useCallback(
+    (block: NotebookBlock): boolean => {
+      if (isBlockConfigured(block)) return false;
+      setResult(block.id, {
+        status: "skipped",
+        kind: "Skipped — configure this cell first",
+        ranAt: Date.now(),
+      });
+      return true;
+    },
+    [setResult],
+  );
+
+  /** Mark a condition group's runnable children as skipped (not an error). */
   const markChildrenSkipped = useCallback(
-    (parentId: string) => {
+    (parentId: string, reason = "Skipped — condition was false") => {
       const children = useNotebookStore
         .getState()
         .blocks.filter(
@@ -750,7 +789,7 @@ export function NotebookEditor({
       for (const child of children) {
         setResult(child.id, {
           status: "skipped",
-          kind: "Skipped — condition was false",
+          kind: reason,
           ranAt: Date.now(),
         });
       }
@@ -776,6 +815,7 @@ export function NotebookEditor({
         .getState()
         .blocks.filter((b) => b.parentId === block.id);
       for (const child of children) {
+        if (skipUnconfigured(child)) continue;
         const gate = checkRunWhen(child);
         if (gate === null) return false;
         if (!gate) continue;
@@ -787,7 +827,14 @@ export function NotebookEditor({
       }
       return true;
     },
-    [runCallBlock, runRecipeBlock, evaluateIfBlock, markChildrenSkipped, checkRunWhen],
+    [
+      runCallBlock,
+      runRecipeBlock,
+      evaluateIfBlock,
+      markChildrenSkipped,
+      checkRunWhen,
+      skipUnconfigured,
+    ],
   );
 
   /** Simulate a single block as a chosen caller (writes are eth_call'd). */
@@ -827,6 +874,13 @@ export function NotebookEditor({
       for (const block of executionOrder(all)) {
         if (skipped.has(block.id)) continue;
         if (block.type === "if") {
+          if (skipUnconfigured(block)) {
+            for (const child of all.filter((b) => b.parentId === block.id)) {
+              skipped.add(child.id);
+            }
+            markChildrenSkipped(block.id, "Skipped — configure the condition group first");
+            continue;
+          }
           const verdict = evaluateIfBlock(block);
           if (verdict === null) {
             failed = true;
@@ -841,6 +895,7 @@ export function NotebookEditor({
           continue;
         }
         if (block.type === "recipe") {
+          if (skipUnconfigured(block)) continue;
           const ok = await runRecipeBlock(block, opts);
           if (!ok) {
             failed = true;
@@ -850,6 +905,7 @@ export function NotebookEditor({
         }
         if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
           continue;
+        if (skipUnconfigured(block)) continue;
         const gate = checkRunWhen(block);
         if (gate === null) {
           failed = true;
@@ -872,6 +928,7 @@ export function NotebookEditor({
       evaluateIfBlock,
       markChildrenSkipped,
       checkRunWhen,
+      skipUnconfigured,
     ],
   );
 

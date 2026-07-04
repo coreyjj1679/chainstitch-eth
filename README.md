@@ -144,8 +144,11 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000, create a project (there's an Anvil preset), drop
-your ABIs in the Contracts tab, and start a notebook.
+Open http://localhost:3000 and create a project (there's an Anvil preset).
+Every new project starts with a **Welcome notebook** — a runnable tour of
+blocks, variables, conditions and recipes that works against any RPC, no
+contracts or wallet needed. When you're done with it, drop your ABIs in the
+Contracts tab, start your own notebook, and delete the tour.
 
 Wallet connect uses injected wallets (MetaMask, Rabby, …) out of the box. For
 WalletConnect (QR / mobile), set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` in

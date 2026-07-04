@@ -3,6 +3,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { requireRole, type AuthContext } from "@/server/auth-context";
 import { badRequest, notFound } from "@/server/errors";
+import { seedTutorialContent } from "@/server/dal/tutorial";
 
 export interface ProjectDto {
   id: string;
@@ -80,6 +81,9 @@ export async function createProject(
     createdAt: new Date(),
   };
   await db.insert(schema.projects).values(row);
+  // Every new project starts with the Welcome tutorial notebook (+ example
+  // recipe) — chain-agnostic, runnable as-is, deletable in one click.
+  await seedTutorialContent(row.id);
   return toDto(row);
 }
 
