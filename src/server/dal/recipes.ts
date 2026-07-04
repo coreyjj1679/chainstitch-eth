@@ -1,8 +1,13 @@
 import "server-only";
 import { and, asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { requireRole, type AuthContext } from "@/server/auth-context";
-import { badRequest, notFound } from "@/server/errors";
+import {
+  hasAnyAccess,
+  requireProjectRole,
+  type AuthContext,
+} from "@/server/auth-context";
+import type { WorkspaceRole } from "@/db/schema";
+import { badRequest, forbidden, notFound } from "@/server/errors";
 import { requireProject } from "@/server/dal/projects";
 
 type RecipeRow = typeof schema.recipes.$inferSelect;
@@ -31,9 +36,13 @@ function toDto(row: RecipeRow) {
   };
 }
 
-/** Workspace-scoped recipe lookup via its project. */
-async function requireRecipe(ctx: AuthContext, id: string): Promise<RecipeRow> {
-  requireRole(ctx, "viewer");
+/** Recipe lookup via its project + effective-role gate on that project. */
+async function requireRecipe(
+  ctx: AuthContext,
+  id: string,
+  min: WorkspaceRole = "viewer",
+): Promise<RecipeRow> {
+  if (!hasAnyAccess(ctx)) throw forbidden("You are not a member of this workspace");
   const [row] = await db
     .select({ recipe: schema.recipes })
     .from(schema.recipes)
@@ -42,6 +51,7 @@ async function requireRecipe(ctx: AuthContext, id: string): Promise<RecipeRow> {
       and(eq(schema.recipes.id, id), eq(schema.projects.workspaceId, ctx.workspaceId)),
     );
   if (!row) throw notFound("Recipe");
+  requireProjectRole(ctx, row.recipe.projectId, min, "Recipe");
   return row.recipe;
 }
 
@@ -108,8 +118,7 @@ export async function createRecipe(
   projectId: string,
   data: { name?: unknown; description?: unknown; blocks?: unknown },
 ) {
-  requireRole(ctx, "editor");
-  await requireProject(ctx, projectId);
+  await requireProject(ctx, projectId, "editor");
   if (!data.name || !String(data.name).trim()) throw badRequest("name is required");
   const now = new Date();
   const row: RecipeRow = {
@@ -130,8 +139,7 @@ export async function updateRecipe(
   id: string,
   body: { name?: unknown; description?: unknown; blocks?: unknown },
 ) {
-  requireRole(ctx, "editor");
-  await requireRecipe(ctx, id);
+  await requireRecipe(ctx, id, "editor");
   const updates: Partial<RecipeRow> = { updatedAt: new Date() };
   if (body.name !== undefined) {
     if (!body.name || !String(body.name).trim()) throw badRequest("name is required");
@@ -145,7 +153,6 @@ export async function updateRecipe(
 }
 
 export async function deleteRecipe(ctx: AuthContext, id: string): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireRecipe(ctx, id);
+  await requireRecipe(ctx, id, "editor");
   await db.delete(schema.recipes).where(eq(schema.recipes.id, id));
 }

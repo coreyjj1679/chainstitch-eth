@@ -2,12 +2,13 @@
 
 import { use, type ReactNode } from "react";
 import Link from "next/link";
-import { useMe, useProject } from "@/lib/hooks";
+import { useProject } from "@/lib/hooks";
 import { ProjectWeb3Provider } from "@/components/wallet/project-web3-provider";
 import { WalletButton } from "@/components/wallet/wallet-button";
 import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import { ProjectSettingsDialog } from "@/components/layout/project-settings-dialog";
 import { AccountMenu } from "@/components/workspace/account-menu";
+import { ShareProjectDialog } from "@/components/workspace/share-dialog";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,8 +22,8 @@ export default function ProjectLayout({
 }) {
   const { id } = use(params);
   const { data: project, isLoading } = useProject(id);
-  const { data: me } = useMe();
-  const isOwner = me?.role === "owner";
+  // Effective role on this project (workspace role or per-project grant).
+  const isOwner = project?.role === "owner";
 
   if (isLoading || !project) {
     return (
@@ -61,6 +62,7 @@ export default function ProjectLayout({
               </span>
             )}
             <div className="ml-auto flex items-center gap-2">
+              <ShareProjectDialog project={project} />
               <WalletButton />
               <AccountMenu />
             </div>

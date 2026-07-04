@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAddress } from "viem";
-import { Trash2, UserPlus } from "lucide-react";
+import { Trash2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useMe } from "@/lib/hooks";
+import { useMe, useProjects } from "@/lib/hooks";
 import type { MemberInfo, WorkspaceRole } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -31,6 +31,9 @@ const ROLES: Array<{ value: WorkspaceRole; label: string; hint: string }> = [
   { value: "editor", label: "Editor", hint: "edit notebooks & contracts" },
   { value: "owner", label: "Owner", hint: "everything incl. members" },
 ];
+
+/** Sentinel for the scope select: an invite that grants the whole workspace. */
+const WORKSPACE_SCOPE = "__workspace__";
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -61,6 +64,44 @@ function RoleSelect({
   );
 }
 
+function GrantChips({ member, isOwner }: { member: MemberInfo; isOwner: boolean }) {
+  const queryClient = useQueryClient();
+  const removeGrant = useMutation({
+    mutationFn: (id: string) => api.workspace.removeGrant(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+      queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  if (member.grants.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {member.grants.map((grant) => (
+        <Badge
+          key={grant.id}
+          variant="secondary"
+          className="gap-1 pr-1 text-[10px] font-normal"
+          title={`${grant.role} on ${grant.projectName}`}
+        >
+          {grant.projectName} · {grant.role}
+          {isOwner && (
+            <button
+              type="button"
+              aria-label={`Revoke access to ${grant.projectName}`}
+              className="rounded-full p-0.5 hover:bg-muted-foreground/20"
+              onClick={() => removeGrant.mutate(grant.id)}
+            >
+              <X className="size-2.5" />
+            </button>
+          )}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+
 function MemberRow({
   member,
   isOwner,
@@ -77,17 +118,18 @@ function MemberRow({
   };
 
   const setRole = useMutation({
-    mutationFn: (role: WorkspaceRole) => api.workspace.updateMemberRole(member.id, role),
+    mutationFn: (role: WorkspaceRole) => api.workspace.updateMemberRole(member.id!, role),
     onSuccess: invalidate,
     onError: (e: Error) => toast.error(e.message),
   });
   const remove = useMutation({
-    mutationFn: () => api.workspace.removeMember(member.id),
+    mutationFn: () => api.workspace.removeMember(member.id!),
     onSuccess: invalidate,
     onError: (e: Error) => toast.error(e.message),
   });
 
   const wallet = member.wallets[0];
+  const isWorkspaceMember = member.id !== null && member.role !== null;
   return (
     <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
       <div className="min-w-0 flex-1">
@@ -100,38 +142,46 @@ function MemberRow({
               you
             </Badge>
           )}
+          {!isWorkspaceMember && (
+            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+              project only
+            </Badge>
+          )}
         </div>
         {wallet && (
           <p className="truncate font-mono text-xs text-muted-foreground" title={wallet}>
             {wallet}
           </p>
         )}
+        <GrantChips member={member} isOwner={isOwner} />
       </div>
-      {isOwner ? (
-        <>
-          <RoleSelect
-            value={member.role}
-            onChange={(role) => setRole.mutate(role)}
-            disabled={setRole.isPending}
-          />
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            aria-label="Remove member"
-            title="Remove from workspace"
-            onClick={() => {
-              if (confirm(`Remove ${wallet ? shortAddress(wallet) : member.name}?`))
-                remove.mutate();
-            }}
-          >
-            <Trash2 className="text-muted-foreground" />
-          </Button>
-        </>
-      ) : (
-        <Badge variant="outline" className="text-xs capitalize">
-          {member.role}
-        </Badge>
-      )}
+      {isWorkspaceMember ? (
+        isOwner ? (
+          <>
+            <RoleSelect
+              value={member.role!}
+              onChange={(role) => setRole.mutate(role)}
+              disabled={setRole.isPending}
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Remove member"
+              title="Remove from workspace (revokes project access too)"
+              onClick={() => {
+                if (confirm(`Remove ${wallet ? shortAddress(wallet) : member.name}?`))
+                  remove.mutate();
+              }}
+            >
+              <Trash2 className="text-muted-foreground" />
+            </Button>
+          </>
+        ) : (
+          <Badge variant="outline" className="text-xs capitalize">
+            {member.role}
+          </Badge>
+        )
+      ) : null}
     </div>
   );
 }
@@ -157,12 +207,19 @@ export function MembersDialog({
     queryFn: api.workspace.invites,
     enabled: open && isOwner,
   });
+  const { data: projects } = useProjects();
 
   const [wallet, setWallet] = useState("");
   const [role, setRole] = useState<WorkspaceRole>("editor");
+  const [scope, setScope] = useState<string>(WORKSPACE_SCOPE);
 
   const invite = useMutation({
-    mutationFn: () => api.workspace.createInvite(wallet.trim(), role),
+    mutationFn: () =>
+      api.workspace.createInvite(
+        wallet.trim(),
+        role,
+        scope === WORKSPACE_SCOPE ? null : scope,
+      ),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["invites"] });
       queryClient.invalidateQueries({ queryKey: ["members"] });
@@ -180,6 +237,11 @@ export function MembersDialog({
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invites"] }),
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const scopeLabel =
+    scope === WORKSPACE_SCOPE
+      ? "the whole workspace"
+      : `only “${projects?.find((p) => p.id === scope)?.name ?? "that project"}”`;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -211,9 +273,28 @@ export function MembersDialog({
                 Invite
               </Button>
             </div>
+            <Select
+              value={scope}
+              onValueChange={(v) => setScope(v ?? WORKSPACE_SCOPE)}
+            >
+              <SelectTrigger className="h-7 w-full text-xs" size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={WORKSPACE_SCOPE}>
+                  Whole workspace — every project
+                </SelectItem>
+                {projects?.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    Only “{p.name}”
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <p className="text-xs text-muted-foreground">
               No email needed — the invite is claimed when that wallet signs in
-              with Ethereum. {ROLES.find((r) => r.value === role)?.hint}.
+              with Ethereum. {ROLES.find((r) => r.value === role)?.hint}, in{" "}
+              {scopeLabel}.
             </p>
           </div>
         )}
@@ -221,7 +302,7 @@ export function MembersDialog({
         <div className="grid gap-2">
           {members.data?.map((m) => (
             <MemberRow
-              key={m.id}
+              key={m.userId}
               member={m}
               isOwner={!!isOwner}
               isSelf={m.userId === me?.user.id}
@@ -247,7 +328,9 @@ export function MembersDialog({
                     {shortAddress(inv.wallet)}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    invited as {inv.role} — waiting for first sign-in
+                    invited as {inv.role}
+                    {inv.projectId ? ` on “${inv.projectName}”` : ""} — waiting for
+                    first sign-in
                   </span>
                 </div>
                 <Button

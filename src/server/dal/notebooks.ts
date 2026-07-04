@@ -1,8 +1,13 @@
 import "server-only";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { requireRole, type AuthContext } from "@/server/auth-context";
-import { badRequest, notFound } from "@/server/errors";
+import {
+  hasAnyAccess,
+  requireProjectRole,
+  type AuthContext,
+} from "@/server/auth-context";
+import type { WorkspaceRole } from "@/db/schema";
+import { badRequest, forbidden, notFound } from "@/server/errors";
 import { requireProject } from "@/server/dal/projects";
 
 type NotebookRow = typeof schema.notebooks.$inferSelect;
@@ -18,9 +23,13 @@ function toDto(row: NotebookRow) {
   };
 }
 
-/** Workspace-scoped notebook lookup via its project. */
-async function requireNotebook(ctx: AuthContext, id: string): Promise<NotebookRow> {
-  requireRole(ctx, "viewer");
+/** Notebook lookup via its project + effective-role gate on that project. */
+async function requireNotebook(
+  ctx: AuthContext,
+  id: string,
+  min: WorkspaceRole = "viewer",
+): Promise<NotebookRow> {
+  if (!hasAnyAccess(ctx)) throw forbidden("You are not a member of this workspace");
   const [row] = await db
     .select({ notebook: schema.notebooks })
     .from(schema.notebooks)
@@ -29,6 +38,7 @@ async function requireNotebook(ctx: AuthContext, id: string): Promise<NotebookRo
       and(eq(schema.notebooks.id, id), eq(schema.projects.workspaceId, ctx.workspaceId)),
     );
   if (!row) throw notFound("Notebook");
+  requireProjectRole(ctx, row.notebook.projectId, min, "Notebook");
   return row.notebook;
 }
 
@@ -67,8 +77,7 @@ export async function createNotebook(
   projectId: string,
   data: { title?: unknown; description?: unknown },
 ) {
-  requireRole(ctx, "editor");
-  await requireProject(ctx, projectId);
+  await requireProject(ctx, projectId, "editor");
   if (!data.title) throw badRequest("title is required");
   const now = new Date();
   const row: NotebookRow = {
@@ -88,8 +97,7 @@ export async function updateNotebook(
   id: string,
   body: { title?: unknown; description?: unknown },
 ) {
-  requireRole(ctx, "editor");
-  await requireNotebook(ctx, id);
+  await requireNotebook(ctx, id, "editor");
   const updates: Partial<NotebookRow> = { updatedAt: new Date() };
   if (body.title !== undefined) updates.title = String(body.title);
   if (body.description !== undefined)
@@ -99,8 +107,7 @@ export async function updateNotebook(
 }
 
 export async function deleteNotebook(ctx: AuthContext, id: string): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireNotebook(ctx, id);
+  await requireNotebook(ctx, id, "editor");
   await db.delete(schema.notebooks).where(eq(schema.notebooks.id, id));
 }
 
@@ -127,8 +134,7 @@ export async function saveRunState(
   notebookId: string,
   state: string,
 ): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireNotebook(ctx, notebookId);
+  await requireNotebook(ctx, notebookId, "editor");
   if (typeof state !== "string" || state.length === 0) {
     throw badRequest("state must be a non-empty string");
   }
@@ -145,8 +151,7 @@ export async function saveRunState(
 }
 
 export async function clearRunState(ctx: AuthContext, notebookId: string): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireNotebook(ctx, notebookId);
+  await requireNotebook(ctx, notebookId, "editor");
   await db
     .delete(schema.notebookRunState)
     .where(eq(schema.notebookRunState.notebookId, notebookId));
@@ -167,8 +172,7 @@ export async function saveBlocks(
   notebookId: string,
   incoming: IncomingBlock[],
 ): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireNotebook(ctx, notebookId);
+  await requireNotebook(ctx, notebookId, "editor");
   // better-sqlite3 transactions are synchronous: use .run(), no awaits inside.
   db.transaction((tx) => {
     tx.delete(schema.blocks).where(eq(schema.blocks.notebookId, notebookId)).run();

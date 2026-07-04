@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { BookmarkPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { useRecipes } from "@/lib/hooks";
 import { blockLabel, executionOrder, isGroupType } from "@/lib/block-label";
 import { useNotebookStore } from "@/stores/notebook-store";
 import type { ContractEntry, NotebookBlock } from "@/lib/types";
@@ -18,7 +19,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+
+/** Sentinel for the target select: create a new recipe. */
+const NEW_RECIPE = "__new__";
 
 /**
  * "Save as recipe": pick blocks from the current notebook and store them as a
@@ -66,6 +77,7 @@ function SaveRecipeForm({
 }) {
   const queryClient = useQueryClient();
   const blocks = useNotebookStore((s) => s.blocks);
+  const { data: recipes } = useRecipes(projectId);
   // Recipe blocks can't be nested into a recipe (the server rejects them too).
   const ordered = useMemo(
     () => executionOrder(blocks).filter((b) => b.type !== "recipe"),
@@ -74,6 +86,9 @@ function SaveRecipeForm({
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  /** NEW_RECIPE, or the id of an existing recipe to overwrite. */
+  const [target, setTarget] = useState<string>(NEW_RECIPE);
+  const updating = target !== NEW_RECIPE;
   const [selected, setSelected] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     if (!initialSelectedId) return initial;
@@ -115,6 +130,10 @@ function SaveRecipeForm({
           // joins the recipe at the top level.
           parentId: b.parentId && selected.has(b.parentId) ? b.parentId : null,
         }));
+      if (updating) {
+        // Overwrite the chosen recipe's steps; its name/description stay.
+        return api.recipes.update(target, { blocks: payload });
+      }
       return api.recipes.create(projectId, {
         name: name.trim(),
         description: description.trim() || undefined,
@@ -123,13 +142,16 @@ function SaveRecipeForm({
     },
     onSuccess: (recipe) => {
       queryClient.invalidateQueries({ queryKey: ["recipes", projectId] });
-      toast.success(`Saved recipe "${recipe.name}"`);
+      toast.success(
+        updating ? `Updated recipe "${recipe.name}"` : `Saved recipe "${recipe.name}"`,
+      );
       onSaved();
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const canSave = name.trim().length > 0 && selected.size > 0 && !save.isPending;
+  const canSave =
+    (updating || name.trim().length > 0) && selected.size > 0 && !save.isPending;
 
   return (
     <>
@@ -137,28 +159,50 @@ function SaveRecipeForm({
         <DialogTitle>Save as recipe</DialogTitle>
       </DialogHeader>
       <div className="grid gap-3 py-1">
-        <div className="grid gap-1.5">
-          <Label htmlFor="recipe-name">Name</Label>
-          <Input
-            id="recipe-name"
-            autoFocus
-            placeholder="Approve + deposit"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <Label htmlFor="recipe-desc">
-            Description{" "}
-            <span className="font-normal text-muted-foreground">(optional)</span>
-          </Label>
-          <Input
-            id="recipe-desc"
-            placeholder="What this flow does"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
+        {recipes && recipes.length > 0 && (
+          <div className="grid gap-1.5">
+            <Label>Save to</Label>
+            <Select value={target} onValueChange={(v) => setTarget(v ?? NEW_RECIPE)}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NEW_RECIPE}>New recipe</SelectItem>
+                {recipes.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    Update “{r.name}”
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+        {!updating && (
+          <>
+            <div className="grid gap-1.5">
+              <Label htmlFor="recipe-name">Name</Label>
+              <Input
+                id="recipe-name"
+                autoFocus
+                placeholder="Approve + deposit"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+              />
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="recipe-desc">
+                Description{" "}
+                <span className="font-normal text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="recipe-desc"
+                placeholder="What this flow does"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
+            </div>
+          </>
+        )}
         <div className="grid gap-1.5">
           <Label>Blocks to include</Label>
           <div className="grid max-h-64 gap-0.5 overflow-y-auto rounded-md border p-1.5">
@@ -191,15 +235,20 @@ function SaveRecipeForm({
             ))}
           </div>
           <p className="text-xs text-muted-foreground/70">
-            Inserting a recipe pastes an editable copy of these blocks — recipes
-            reference this project&apos;s address book.
+            {updating
+              ? "Updating replaces the recipe's steps with this selection; linked recipe cells run the new steps from now on."
+              : "Inserting a recipe pastes an editable copy of these blocks — recipes reference this project's address book."}
           </p>
         </div>
       </div>
       <DialogFooter>
         <Button disabled={!canSave} onClick={() => save.mutate()}>
           <BookmarkPlus data-icon="inline-start" />
-          {save.isPending ? "Saving…" : `Save recipe (${selected.size})`}
+          {save.isPending
+            ? "Saving…"
+            : updating
+              ? `Update recipe (${selected.size})`
+              : `Save recipe (${selected.size})`}
         </Button>
       </DialogFooter>
     </>

@@ -16,7 +16,9 @@ export async function POST(request: Request) {
   try {
     const ctx = await getAuthContext(request.headers);
     const body = await request.json();
-    return NextResponse.json(await createInvite(ctx, body.wallet, body.role));
+    return NextResponse.json(
+      await createInvite(ctx, body.wallet, body.role, body.projectId),
+    );
   } catch (error) {
     return handleApiError(error);
   }

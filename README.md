@@ -200,6 +200,13 @@ identity only. Roles:
 | editor | + edit contracts, notebooks, blocks, state views |
 | owner | + project settings & RPC URLs, members & invites, deletes |
 
+An invite grants the whole workspace by default, but can be scoped to a
+**single project** instead (pick one in the invite dialog): the wallet gets
+that role on that project only and sees nothing else — handy for auditors or
+outside collaborators. For existing members a project grant can raise (never
+lower) their role on that one project. Note that project access includes the
+project's RPC URL, since blocks execute in the member's browser.
+
 Switching an existing local instance to team mode keeps all your projects; they
 become the shared workspace, owned by `OWNER_WALLETS` after first sign-in.
 Switching back (`APP_MODE=local`) bypasses auth again — only do that on a
@@ -217,7 +224,7 @@ APP_MODE=team OWNER_WALLETS=0x… BETTER_AUTH_SECRET=… APP_URL=https://… \
 
 ```bash
 docker build -t chainstitch .
-docker run -d -p 3000:3000 \
+docker run -d --name chainstitch -p 3000:3000 \
   -v ./data:/app/data \
   -e APP_MODE=team \
   -e OWNER_WALLETS=0xYourAddress \
@@ -226,8 +233,15 @@ docker run -d -p 3000:3000 \
   chainstitch
 ```
 
-Or use the included `docker-compose.yml`. All state lives in the mounted
-`data/` directory. One caveat: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is
+If you keep the variables in a `.env` file (copy `.env.example`), replace the
+`-e` flags with `--env-file .env` — plain `docker run` does **not** read
+`.env` by itself. To apply a rebuild or config change, remove the old
+container first, then run again: `docker rm -f chainstitch` (your data
+survives — it lives in the mounted `data/` directory).
+
+Or use the included `docker-compose.yml`, which reads the same variables from
+a `.env` file automatically: `docker compose up -d --build`. All state lives
+in the mounted `data/` directory. One caveat: `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is
 inlined at **build** time (Next.js public-env semantics), so it must be set
 when the image is built — passing it at `docker run` has no effect. Injected
 browser wallets work without it.
@@ -245,14 +259,14 @@ browser wallets work without it.
 ### Operations
 
 - **Backups** — everything is one SQLite file. Safe while running:
-  `sqlite3 data/chainbook.db ".backup data/backup-$(date +%F).db"`. If you copy
+  `sqlite3 data/chainstitch.db ".backup data/backup-$(date +%F).db"`. If you copy
   the raw file instead, stop the app first or include the `-wal`/`-shm` files
   (WAL mode is on).
 - **Upgrades** — pull, build, restart (or pull the new image). Schema
   migrations apply automatically on boot; there is never a manual migration
   step.
-- **Database location** — override with `CHAINBOOK_DB_PATH=/path/to/file.db`
-  (default: `data/chainbook.db`).
+- **Database location** — override with `CHAINSTITCH_DB_PATH=/path/to/file.db`
+  (default: `data/chainstitch.db`).
 
 ## Privacy by construction
 

@@ -30,7 +30,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Heading2, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useContracts, useMe, useProject, useStateViews } from "@/lib/hooks";
+import { useContracts, useProject, useStateViews } from "@/lib/hooks";
 import { getReadFunctions } from "@/lib/abi";
 import { displayValue } from "@/lib/serialize";
 import { shortError } from "@/lib/engine";
@@ -479,8 +479,8 @@ export default function StatePage({ params }: { params: Promise<{ id: string }> 
   const { data: project } = useProject(id);
   const { data: contracts } = useContracts(id);
   const { data: layout } = useStateViews(id);
-  const { data: me } = useMe();
-  const canEdit = me?.role === "editor" || me?.role === "owner";
+  // Effective role on this project (workspace role or per-project grant).
+  const canEdit = project?.role === "editor" || project?.role === "owner";
 
   const gridRef = useRef<HTMLDivElement | null>(null);
   const [cols, setCols] = useState(2);

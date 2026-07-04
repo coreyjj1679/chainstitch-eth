@@ -84,6 +84,7 @@ async function main() {
     rpcUrl: "http://127.0.0.1:8545",
     explorerUrl: null,
     createdAt: Date.now(),
+    role: "owner",
   };
   const contract: ContractEntry = {
     id: "c1",

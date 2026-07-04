@@ -1,7 +1,7 @@
 import "server-only";
 import { asc, eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { requireRole, type AuthContext } from "@/server/auth-context";
+import { type AuthContext } from "@/server/auth-context";
 import { requireProject } from "@/server/dal/projects";
 
 export interface IncomingStateView {
@@ -60,8 +60,7 @@ export async function saveStateViews(
   incoming: IncomingStateView[],
   incomingTitles: IncomingStateTitle[] = [],
 ): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireProject(ctx, projectId);
+  await requireProject(ctx, projectId, "editor");
   // better-sqlite3 transactions are synchronous: use .run(), no awaits inside.
   db.transaction((tx) => {
     tx.delete(schema.stateViews).where(eq(schema.stateViews.projectId, projectId)).run();

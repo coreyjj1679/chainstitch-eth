@@ -48,10 +48,13 @@ export function AccountMenu() {
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-48">
-          <DropdownMenuItem onClick={() => setMembersOpen(true)}>
-            <Users />
-            Workspace members
-          </DropdownMenuItem>
+          {/* Project-only members can't list the workspace roster (403). */}
+          {me.role && (
+            <DropdownMenuItem onClick={() => setMembersOpen(true)}>
+              <Users />
+              Workspace members
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem
             onClick={async () => {
               await authClient.signOut();

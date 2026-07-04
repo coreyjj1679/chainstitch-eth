@@ -6,6 +6,7 @@ import type {
   NotebookBlock,
   NotebookMeta,
   Project,
+  ProjectAccess,
   Recipe,
   StateLayout,
   WorkspaceRole,
@@ -43,17 +44,20 @@ export const api = {
     removeMember: (id: string) =>
       request(`/api/workspace/members/${id}`, { method: "DELETE" }),
     invites: () => request<InviteInfo[]>("/api/workspace/invites"),
-    createInvite: (wallet: string, role: WorkspaceRole) =>
+    createInvite: (wallet: string, role: WorkspaceRole, projectId?: string | null) =>
       request<InviteInfo>("/api/workspace/invites", {
         method: "POST",
-        body: JSON.stringify({ wallet, role }),
+        body: JSON.stringify({ wallet, role, projectId: projectId ?? null }),
       }),
     revokeInvite: (id: string) =>
       request(`/api/workspace/invites/${id}`, { method: "DELETE" }),
+    removeGrant: (id: string) =>
+      request(`/api/workspace/grants/${id}`, { method: "DELETE" }),
   },
   projects: {
     list: () => request<Project[]>("/api/projects"),
     get: (id: string) => request<Project>(`/api/projects/${id}`),
+    access: (id: string) => request<ProjectAccess>(`/api/projects/${id}/access`),
     create: (data: {
       name: string;
       chainId: number;

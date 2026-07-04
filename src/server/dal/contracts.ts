@@ -3,8 +3,13 @@ import { and, asc, eq } from "drizzle-orm";
 import { isAddress } from "viem";
 import { db, schema } from "@/db";
 import { validateAbi } from "@/lib/abi";
-import { requireRole, type AuthContext } from "@/server/auth-context";
-import { badRequest, notFound } from "@/server/errors";
+import {
+  hasAnyAccess,
+  requireProjectRole,
+  type AuthContext,
+} from "@/server/auth-context";
+import type { WorkspaceRole } from "@/db/schema";
+import { badRequest, forbidden, notFound } from "@/server/errors";
 import { requireProject } from "@/server/dal/projects";
 
 type ContractRow = typeof schema.contracts.$inferSelect;
@@ -20,9 +25,13 @@ function toDto(row: ContractRow) {
   };
 }
 
-/** Workspace-scoped contract lookup via its project. */
-async function requireContract(ctx: AuthContext, id: string): Promise<ContractRow> {
-  requireRole(ctx, "viewer");
+/** Contract lookup via its project + effective-role gate on that project. */
+async function requireContract(
+  ctx: AuthContext,
+  id: string,
+  min: WorkspaceRole = "viewer",
+): Promise<ContractRow> {
+  if (!hasAnyAccess(ctx)) throw forbidden("You are not a member of this workspace");
   const [row] = await db
     .select({ contract: schema.contracts })
     .from(schema.contracts)
@@ -31,6 +40,7 @@ async function requireContract(ctx: AuthContext, id: string): Promise<ContractRo
       and(eq(schema.contracts.id, id), eq(schema.projects.workspaceId, ctx.workspaceId)),
     );
   if (!row) throw notFound("Contract");
+  requireProjectRole(ctx, row.contract.projectId, min, "Contract");
   return row.contract;
 }
 
@@ -49,8 +59,7 @@ export async function createContract(
   projectId: string,
   data: { name?: unknown; address?: unknown; abi?: unknown },
 ) {
-  requireRole(ctx, "editor");
-  await requireProject(ctx, projectId);
+  await requireProject(ctx, projectId, "editor");
   if (!data.name || !data.abi) throw badRequest("name and abi are required");
   if (data.address && !isAddress(String(data.address))) throw badRequest("Invalid address");
   const validation = validateAbi(data.abi);
@@ -72,8 +81,7 @@ export async function updateContract(
   id: string,
   body: { name?: unknown; address?: unknown; abi?: unknown },
 ) {
-  requireRole(ctx, "editor");
-  await requireContract(ctx, id);
+  await requireContract(ctx, id, "editor");
   const updates: Partial<ContractRow> = {};
   if (body.name !== undefined) updates.name = String(body.name);
   if (body.address !== undefined) {
@@ -92,7 +100,6 @@ export async function updateContract(
 }
 
 export async function deleteContract(ctx: AuthContext, id: string): Promise<void> {
-  requireRole(ctx, "editor");
-  await requireContract(ctx, id);
+  await requireContract(ctx, id, "editor");
   await db.delete(schema.contracts).where(eq(schema.contracts.id, id));
 }

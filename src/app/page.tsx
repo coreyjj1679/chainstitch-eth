@@ -285,7 +285,7 @@ export default function HomePage() {
                     {p.rpcUrl}
                   </p>
                 </div>
-                {isOwner && (
+                {p.role === "owner" && (
                   <Button
                     variant="ghost"
                     size="icon-sm"

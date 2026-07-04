@@ -134,11 +134,38 @@ export const invites = sqliteTable(
     /** Wallet address, stored lowercase */
     wallet: text("wallet").notNull(),
     role: text("role").$type<WorkspaceRole>().notNull(),
+    /**
+     * null: workspace-wide membership (every project, the classic invite).
+     * set: access to that single project only (claimed into project_members).
+     */
+    projectId: text("project_id"),
     invitedBy: text("invited_by"),
     status: text("status").$type<"pending" | "accepted" | "revoked">().notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [index("invites_wallet_idx").on(t.wallet)],
+);
+
+/**
+ * Per-project access grants, overlaying workspace membership: a user's
+ * effective role on a project is the higher of their workspace role and
+ * their grant here. Lets owners share one project without opening the
+ * whole workspace (project-scoped invites land in this table).
+ */
+export const projectMembers = sqliteTable(
+  "project_members",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: text("role").$type<WorkspaceRole>().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("project_members_proj_user_uq").on(t.projectId, t.userId)],
 );
 
 // ---------------------------------------------------------------------------

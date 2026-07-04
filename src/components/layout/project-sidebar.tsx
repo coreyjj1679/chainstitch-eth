@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import {
   BookMarked,
   Braces,
@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useContracts, useMe, useNotebooks, useRecipes } from "@/lib/hooks";
+import { useContracts, useNotebooks, useProject, useRecipes } from "@/lib/hooks";
 import { blockLabel, executionOrder } from "@/lib/block-label";
 import { displayValue } from "@/lib/serialize";
 import { useNotebookStore } from "@/stores/notebook-store";
@@ -50,6 +50,74 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
       {children}
     </span>
+  );
+}
+
+// Collapsed/expanded state lives in localStorage so it sticks across visits;
+// useSyncExternalStore keeps hydration safe (server pass renders open) and
+// the listener set lets toggles re-render every subscribed section.
+const sectionListeners = new Set<() => void>();
+function subscribeSections(listener: () => void) {
+  sectionListeners.add(listener);
+  return () => sectionListeners.delete(listener);
+}
+
+function useSectionOpen(id: string): [boolean, () => void] {
+  const storageKey = `cn-sidebar-section-${id}`;
+  const open = useSyncExternalStore(
+    subscribeSections,
+    () => localStorage.getItem(storageKey) !== "collapsed",
+    () => true,
+  );
+  const toggle = () => {
+    localStorage.setItem(storageKey, open ? "collapsed" : "open");
+    for (const listener of sectionListeners) listener();
+  };
+  return [open, toggle];
+}
+
+/**
+ * Collapsible sidebar section: the header row toggles its children, the
+ * chevron mirrors the state, and the choice sticks per section.
+ */
+function SidebarSection({
+  id,
+  label,
+  action,
+  className,
+  children,
+}: {
+  /** Storage suffix, e.g. "blocks" → cn-sidebar-section-blocks. */
+  id: string;
+  label: string;
+  /** Optional right-aligned control (e.g. the new-notebook button). */
+  action?: React.ReactNode;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  const [open, toggle] = useSectionOpen(id);
+
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          title={open ? `Collapse ${label}` : `Expand ${label}`}
+          className="group/section flex min-w-0 flex-1 items-center gap-1 rounded-md py-0.5 text-left"
+        >
+          {open ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover/section:text-foreground" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground/60 transition-colors group-hover/section:text-foreground" />
+          )}
+          <SectionLabel>{label}</SectionLabel>
+        </button>
+        {action}
+      </div>
+      {open && children}
+    </div>
   );
 }
 
@@ -81,11 +149,8 @@ function BlockToc({ projectId }: { projectId: string }) {
   };
 
   return (
-    <div className="border-t px-3 pt-3 pb-2">
-      <div className="mb-1.5">
-        <SectionLabel>Blocks</SectionLabel>
-      </div>
-      <div className="grid gap-px">
+    <SidebarSection id="blocks" label="Blocks" className="border-t px-3 pt-3 pb-2">
+      <div className="mt-1.5 grid gap-px">
         {executionOrder(blocks).map((block, index) => {
           const Icon = BLOCK_ICONS[block.type];
           const result = results[block.id];
@@ -138,7 +203,7 @@ function BlockToc({ projectId }: { projectId: string }) {
           );
         })}
       </div>
-    </div>
+    </SidebarSection>
   );
 }
 
@@ -298,11 +363,12 @@ function VariablesPanel() {
   return (
     <>
       {constants.length > 0 && (
-        <div className="border-t px-3 pt-3 pb-2">
-          <div className="mb-1.5">
-            <SectionLabel>Constants</SectionLabel>
-          </div>
-          <div className="grid gap-px">
+        <SidebarSection
+          id="constants"
+          label="Constants"
+          className="border-t px-3 pt-3 pb-2"
+        >
+          <div className="mt-1.5 grid gap-px">
             {constants.map((c, i) => (
               <VariableRow
                 key={`${c.name}-${i}`}
@@ -313,14 +379,15 @@ function VariablesPanel() {
               />
             ))}
           </div>
-        </div>
+        </SidebarSection>
       )}
       {declaredBlocks.length > 0 && (
-        <div className="border-t px-3 pt-3 pb-2">
-          <div className="mb-1.5">
-            <SectionLabel>Variables</SectionLabel>
-          </div>
-          <div className="grid gap-px">
+        <SidebarSection
+          id="variables"
+          label="Variables"
+          className="border-t px-3 pt-3 pb-2"
+        >
+          <div className="mt-1.5 grid gap-px">
             {declaredBlocks.map((b, i) => {
               const name = b.outputVariable as string;
               const hasValue = name in scope;
@@ -343,7 +410,7 @@ function VariablesPanel() {
               );
             })}
           </div>
-        </div>
+        </SidebarSection>
       )}
     </>
   );
@@ -358,8 +425,9 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: notebooks, isLoading } = useNotebooks(projectId);
-  const { data: me } = useMe();
-  const canEdit = me?.role === "editor" || me?.role === "owner";
+  const { data: project } = useProject(projectId);
+  // Effective role on this project (workspace role or per-project grant).
+  const canEdit = project?.role === "editor" || project?.role === "owner";
   const base = `/p/${projectId}`;
 
   const [width, setWidth] = useState<number>(() => {
@@ -476,20 +544,23 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
         </Link>
       </div>
 
-      <div className="flex items-center justify-between px-3 pt-3 pb-1">
-        <SectionLabel>Notebooks</SectionLabel>
-        {canEdit && (
-          <CreateNotebookDialog
-            projectId={projectId}
-            trigger={<Button variant="ghost" size="icon-xs" aria-label="New notebook" />}
-          >
-            <Plus />
-          </CreateNotebookDialog>
-        )}
-      </div>
-
-      <nav className="max-h-[40%] shrink-0 overflow-y-auto px-2 pb-2">
-        {isLoading ? (
+      <SidebarSection
+        id="notebooks"
+        label="Notebooks"
+        className="shrink-0 px-3 pt-3 pb-1"
+        action={
+          canEdit && (
+            <CreateNotebookDialog
+              projectId={projectId}
+              trigger={<Button variant="ghost" size="icon-xs" aria-label="New notebook" />}
+            >
+              <Plus />
+            </CreateNotebookDialog>
+          )
+        }
+      >
+        <nav className="-mx-1 mt-1 max-h-[40vh] overflow-y-auto pb-1">
+          {isLoading ? (
           <div className="grid gap-1 p-1">
             <Skeleton className="h-7" />
             <Skeleton className="h-7" />
@@ -549,7 +620,8 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
             {canEdit ? "No notebooks yet. Click + to create one." : "No notebooks yet."}
           </p>
         )}
-      </nav>
+        </nav>
+      </SidebarSection>
 
       {/* Blocks / Constants / Variables — stay visible across all project pages */}
       <div className="min-h-0 flex-1 overflow-y-auto">

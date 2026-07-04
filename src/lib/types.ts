@@ -90,6 +90,8 @@ export interface Project {
   rpcUrl: string;
   explorerUrl: string | null;
   createdAt: number;
+  /** The caller's effective role on this project (workspace role or grant). */
+  role: WorkspaceRole;
 }
 
 export interface ContractEntry {
@@ -151,26 +153,56 @@ export type WorkspaceRole = "viewer" | "editor" | "owner";
 export interface Me {
   mode: AppMode;
   user: { id: string; name: string; wallets: string[] };
-  /** Role in the workspace; null when signed in but no longer a member. */
+  /** Workspace-wide role; null for project-only members. */
   role: WorkspaceRole | null;
+  /** Per-project grants (projectId → role) overlaying the workspace role. */
+  projectRoles: Record<string, WorkspaceRole>;
   workspace: { id: string; name: string };
 }
 
-export interface MemberInfo {
+/** One per-project access grant, as listed in the members dialog. */
+export interface ProjectGrantInfo {
   id: string;
+  projectId: string;
+  projectName: string;
+  role: WorkspaceRole;
+}
+
+export interface MemberInfo {
+  /** workspace membership id; null for users who only hold project grants. */
+  id: string | null;
   userId: string;
   name: string;
-  role: WorkspaceRole;
+  /** Workspace-wide role; null for project-only members. */
+  role: WorkspaceRole | null;
   wallets: string[];
   joinedAt: number;
+  grants: ProjectGrantInfo[];
 }
 
 export interface InviteInfo {
   id: string;
   wallet: string;
   role: WorkspaceRole;
+  /** Set when the invite grants a single project instead of the workspace. */
+  projectId: string | null;
+  projectName: string | null;
   status: "pending" | "accepted";
   createdAt: number;
+}
+
+/** Share dialog: everyone with access to one project, plus pending invites. */
+export interface ProjectAccess {
+  members: Array<{
+    /** project grant id — null for workspace members (managed in Members). */
+    grantId: string | null;
+    userId: string;
+    name: string;
+    wallets: string[];
+    role: WorkspaceRole;
+    via: "workspace" | "grant";
+  }>;
+  invites: InviteInfo[];
 }
 
 export type BlockRunStatus = "idle" | "running" | "success" | "error" | "skipped";

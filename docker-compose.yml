@@ -1,7 +1,9 @@
 # Self-hosted Chainstitch. See README → Self-hosting.
 #
 #   Local mode (single user, no login):   docker compose up -d
-#   Team mode (SIWE login + invites):     set APP_MODE/OWNER_WALLETS/… below.
+#   Team mode (SIWE login + invites):     copy .env.example to .env, set
+#                                         APP_MODE=team and the three variables
+#                                         under it, then docker compose up -d.
 services:
   chainstitch:
     build: .
@@ -11,12 +13,10 @@ services:
       # Everything lives in one SQLite database inside this directory.
       - ./data:/app/data
     environment:
-      # --- Team mode (uncomment all four) ---------------------------------
-      # APP_MODE: team
-      # OWNER_WALLETS: "0xYourWalletAddress"            # comma-separated
-      # BETTER_AUTH_SECRET: "change-me"                 # openssl rand -base64 32
-      # APP_URL: "https://notebook.example.com"         # exact URL users visit
-      # --- Optional --------------------------------------------------------
-      # NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ""        # build-arg territory; see docs
-      APP_MODE: local
+      # Values interpolate from a .env file next to this compose file
+      # (see .env.example). Without one you get local mode.
+      APP_MODE: ${APP_MODE:-local}
+      OWNER_WALLETS: ${OWNER_WALLETS:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-}
+      APP_URL: ${APP_URL:-http://localhost:3000}
     restart: unless-stopped

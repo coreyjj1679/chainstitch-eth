@@ -5,6 +5,8 @@
  * Verifies, without a server, that every DAL entry point enforces:
  *  - role gates (viewer < editor < owner, non-member rejected)
  *  - workspace scoping (content in another workspace 404s)
+ *  - per-project grants (grant-only users see just their project; the
+ *    effective role is max(workspace role, grant); invites claim correctly)
  */
 import fs from "fs";
 import os from "os";
@@ -41,6 +43,7 @@ async function expectStatus(promise: Promise<unknown>, status: number, label: st
 }
 
 async function main() {
+  const { eq } = await import("drizzle-orm");
   const { db, schema, DEFAULT_WORKSPACE_ID } = await import("../src/db");
   const dal = {
     projects: await import("../src/server/dal/projects"),
@@ -111,10 +114,30 @@ async function main() {
     updatedAt: now,
   });
 
-  const owner: Ctx = { userId: "alice", workspaceId: DEFAULT_WORKSPACE_ID, role: "owner" };
-  const editor: Ctx = { userId: "bob", workspaceId: DEFAULT_WORKSPACE_ID, role: "editor" };
-  const viewer: Ctx = { userId: "carol", workspaceId: DEFAULT_WORKSPACE_ID, role: "viewer" };
-  const nonMember: Ctx = { userId: "dave", workspaceId: DEFAULT_WORKSPACE_ID, role: null };
+  const owner: Ctx = {
+    userId: "alice",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: "owner",
+    projectRoles: {},
+  };
+  const editor: Ctx = {
+    userId: "bob",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: "editor",
+    projectRoles: {},
+  };
+  const viewer: Ctx = {
+    userId: "carol",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: "viewer",
+    projectRoles: {},
+  };
+  const nonMember: Ctx = {
+    userId: "dave",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: null,
+    projectRoles: {},
+  };
 
   // --- Owner path ------------------------------------------------------------
   const project = await dal.projects.createProject(owner, {
@@ -345,6 +368,251 @@ async function main() {
     dal.workspace.createInvite(owner, "not-an-address", "editor"),
     400,
     "invalid wallet is rejected",
+  );
+
+  // --- Per-project grants ------------------------------------------------------
+  const team = await import("../src/server/team");
+  const side = await dal.projects.createProject(owner, {
+    name: "Side",
+    chainId: 1,
+    rpcUrl: "http://side.invalid",
+  });
+
+  // dave: no workspace role, editor grant on Side only.
+  const grantee: Ctx = {
+    userId: "dave",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: null,
+    projectRoles: { [side.id]: "editor" },
+  };
+  const granteeProjects = await dal.projects.listProjects(grantee);
+  ok(
+    granteeProjects.length === 1 && granteeProjects[0].id === side.id,
+    "grant-only user lists just their project",
+  );
+  ok(
+    granteeProjects[0].role === "editor",
+    "project list reports the granted role",
+  );
+  ok(
+    (await dal.notebooks.listNotebooks(grantee, side.id)).length >= 1,
+    "grant-only editor reads notebooks in their project",
+  );
+  const granteeNotebook = await dal.notebooks.createNotebook(grantee, side.id, {
+    title: "From grantee",
+  });
+  ok(!!granteeNotebook.id, "grant-only editor creates a notebook");
+  await expectStatus(
+    dal.projects.getProject(grantee, project.id),
+    404,
+    "other projects are invisible to grant-only users",
+  );
+  await expectStatus(
+    dal.notebooks.getNotebookWithBlocks(grantee, notebook.id),
+    404,
+    "notebooks outside the grant are invisible",
+  );
+  await expectStatus(
+    dal.contracts.createContract(grantee, project.id, { name: "x", abi: [] }),
+    404,
+    "grant-only user cannot write outside their project",
+  );
+  await expectStatus(
+    dal.projects.createProject(grantee, { name: "x", chainId: 1, rpcUrl: "y" }),
+    403,
+    "grant-only user cannot create projects",
+  );
+  await expectStatus(
+    dal.projects.updateProject(grantee, side.id, { rpcUrl: "http://x" }),
+    403,
+    "grant-only editor cannot change project settings",
+  );
+  await expectStatus(
+    dal.workspace.listMembers(grantee),
+    403,
+    "grant-only user cannot list workspace members",
+  );
+
+  // Viewer grant caps mutations at read level inside the project.
+  const viewerGrantee: Ctx = { ...grantee, projectRoles: { [side.id]: "viewer" } };
+  await expectStatus(
+    dal.notebooks.createNotebook(viewerGrantee, side.id, { title: "x" }),
+    403,
+    "viewer grant cannot create notebooks",
+  );
+
+  // Effective role = max(workspace role, grant): workspace viewer + owner grant.
+  const viewerPlusGrant: Ctx = {
+    userId: "carol",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: "viewer",
+    projectRoles: { [side.id]: "owner" },
+  };
+  ok(
+    (await dal.projects.updateProject(viewerPlusGrant, side.id, { name: "Side v2" }))
+      .name === "Side v2",
+    "owner grant lets a workspace viewer manage that project",
+  );
+  await expectStatus(
+    dal.projects.updateProject(viewerPlusGrant, project.id, { name: "pwn" }),
+    403,
+    "the grant does not leak into other projects",
+  );
+
+  // Project-scoped invite: pending → claimed as a grant on first sign-in.
+  const erinWallet = "0x90f79bf6eb2c4f870365e785982e1f101e93b906";
+  const projectInvite = await dal.workspace.createInvite(
+    owner,
+    erinWallet,
+    "viewer",
+    side.id,
+  );
+  ok(
+    projectInvite.status === "pending" && projectInvite.projectId === side.id,
+    "owner creates a project-scoped invite",
+  );
+  await expectStatus(
+    dal.workspace.createInvite(owner, erinWallet, "viewer", "no-such-project"),
+    404,
+    "project invite validates the project",
+  );
+  ok(
+    await team.isWalletAllowedToSignIn(erinWallet),
+    "pending project invite allows sign-in",
+  );
+  await db.insert(schema.user).values({
+    id: "erin",
+    name: "erin",
+    email: "erin@test.invalid",
+    emailVerified: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.walletAddress).values({
+    id: "wa-erin",
+    userId: "erin",
+    address: erinWallet,
+    chainId: 1,
+    isPrimary: true,
+    createdAt: now,
+  });
+  await team.onUserSignedIn("erin");
+  const [erinGrant] = await db
+    .select()
+    .from(schema.projectMembers)
+    .where(eq(schema.projectMembers.userId, "erin"));
+  ok(
+    erinGrant?.projectId === side.id && erinGrant?.role === "viewer",
+    "project invite is claimed as a grant on sign-in",
+  );
+  const [erinMembership] = await db
+    .select()
+    .from(schema.workspaceMembers)
+    .where(eq(schema.workspaceMembers.userId, "erin"));
+  ok(!erinMembership, "project invite grants no workspace membership");
+  ok(
+    await team.isWalletAllowedToSignIn(erinWallet),
+    "grant holder can keep signing in",
+  );
+
+  // Grant-only members appear in the roster; revoking the grant locks out.
+  const roster = await dal.workspace.listMembers(owner);
+  const erinEntry = roster.find((m) => m.userId === "erin");
+  ok(
+    !!erinEntry && erinEntry.role === null && erinEntry.grants.length === 1,
+    "grant-only member shows in the roster with their grant",
+  );
+  await expectStatus(
+    dal.workspace.removeProjectGrant(viewer, erinGrant.id),
+    403,
+    "non-owners cannot revoke grants",
+  );
+  await dal.workspace.removeProjectGrant(owner, erinGrant.id);
+  ok(
+    (
+      await db
+        .select()
+        .from(schema.projectMembers)
+        .where(eq(schema.projectMembers.userId, "erin"))
+    ).length === 0,
+    "owner revokes a project grant",
+  );
+  ok(
+    !(await team.isWalletAllowedToSignIn(erinWallet)),
+    "revoked grant holder cannot sign back in",
+  );
+
+  // Removing a workspace member wipes their project grants too (full lockout).
+  await team.upsertProjectGrant(side.id, "bob", "owner", false);
+  await dal.workspace.removeMember(owner, "m-bob");
+  ok(
+    (
+      await db
+        .select()
+        .from(schema.projectMembers)
+        .where(eq(schema.projectMembers.userId, "bob"))
+    ).length === 0,
+    "removing a member also revokes their project grants",
+  );
+
+  // --- Project owners can share their project (the Share dialog) --------------
+  const projectOwner: Ctx = {
+    userId: "dave",
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: null,
+    projectRoles: { [side.id]: "owner" },
+  };
+  const frankWallet = "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65";
+  const shared = await dal.workspace.createInvite(
+    projectOwner,
+    frankWallet,
+    "viewer",
+    side.id,
+  );
+  ok(
+    shared.status === "pending" && shared.projectId === side.id,
+    "project owner invites to their own project",
+  );
+  await expectStatus(
+    dal.workspace.createInvite(projectOwner, frankWallet, "viewer"),
+    403,
+    "project owner cannot invite workspace-wide",
+  );
+  await expectStatus(
+    dal.workspace.createInvite(projectOwner, frankWallet, "viewer", project.id),
+    404,
+    "project owner cannot invite to other projects",
+  );
+  const sideAccess = await dal.workspace.listProjectAccess(projectOwner, side.id);
+  ok(
+    sideAccess.invites.some((i) => i.id === shared.id) &&
+      sideAccess.members.some((m) => m.via === "workspace" && m.role === "owner"),
+    "project owner sees the project's access list",
+  );
+  await expectStatus(
+    dal.workspace.listProjectAccess(viewer, side.id),
+    403,
+    "non-owners cannot view the access list",
+  );
+  await dal.workspace.revokeInvite(projectOwner, shared.id);
+  ok(
+    (await dal.workspace.listProjectAccess(projectOwner, side.id)).invites.length === 0,
+    "project owner revokes a pending invite",
+  );
+  await team.upsertProjectGrant(side.id, "erin", "viewer", false);
+  const [erinGrant2] = await db
+    .select()
+    .from(schema.projectMembers)
+    .where(eq(schema.projectMembers.userId, "erin"));
+  await dal.workspace.removeProjectGrant(projectOwner, erinGrant2.id);
+  ok(
+    (
+      await db
+        .select()
+        .from(schema.projectMembers)
+        .where(eq(schema.projectMembers.userId, "erin"))
+    ).length === 0,
+    "project owner revokes a grant on their project",
   );
 
   console.log(`\n${passed} passed, ${failed} failed`);

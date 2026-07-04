@@ -240,6 +240,66 @@ async function main() {
       "removed member loses access immediately",
     );
     ok((await siweLogin(VIEWER_KEY)) === null, "removed member cannot sign back in");
+
+    // Project-scoped invite: guest sees one project, nothing else
+    const guestAddress = privateKeyToAccount(STRANGER_KEY).address;
+    ok(
+      (
+        await owner("POST", "/api/workspace/invites", {
+          wallet: guestAddress,
+          role: "viewer",
+          projectId,
+        })
+      ).status === 200,
+      "owner invites a wallet to a single project",
+    );
+    const guestCookie = await siweLogin(STRANGER_KEY);
+    ok(!!guestCookie, "project-scoped invite allows sign-in");
+    const guest = client(guestCookie);
+    const guestMe = (await guest("GET", "/api/me")).json as {
+      role: string | null;
+      projectRoles: Record<string, string>;
+    };
+    ok(
+      guestMe.role === null && guestMe.projectRoles[projectId] === "viewer",
+      "guest has no workspace role, only the project grant",
+    );
+    const guestProjects = await guest("GET", "/api/projects");
+    ok(
+      guestProjects.status === 200 &&
+        (guestProjects.json as Array<{ id: string }>).length === 1,
+      "guest lists exactly the granted project",
+    );
+    ok(
+      (await guest("POST", `/api/projects/${projectId}/notebooks`, { title: "x" }))
+        .status === 403,
+      "viewer grant cannot create notebooks",
+    );
+    ok(
+      (await guest("GET", "/api/workspace/members")).status === 403,
+      "guest cannot list workspace members",
+    );
+
+    // Revoking the grant locks the guest out again
+    const roster = await owner("GET", "/api/workspace/members");
+    const guestEntry = (
+      roster.json as Array<{
+        userId: string;
+        wallets: string[];
+        grants: Array<{ id: string }>;
+      }>
+    ).find((m) => m.wallets.some((w) => w.toLowerCase() === guestAddress.toLowerCase()));
+    ok(!!guestEntry && guestEntry.grants.length === 1, "guest appears in roster with grant");
+    ok(
+      (await owner("DELETE", `/api/workspace/grants/${guestEntry!.grants[0].id}`))
+        .status === 200,
+      "owner revokes the project grant",
+    );
+    ok(
+      (await guest("GET", "/api/projects")).status === 403,
+      "revoked guest loses access immediately",
+    );
+    ok((await siweLogin(STRANGER_KEY)) === null, "revoked guest cannot sign back in");
   } finally {
     // Wait for the server to actually exit before deleting its dirs.
     const exited = new Promise<void>((resolve) => {

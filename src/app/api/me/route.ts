@@ -39,6 +39,7 @@ export async function GET(request: Request) {
       mode,
       user: { id: ctx.userId, name, wallets },
       role: ctx.role,
+      projectRoles: ctx.projectRoles,
       workspace: workspace ?? { id: ctx.workspaceId, name: "Workspace" },
     });
   } catch (error) {

@@ -42,7 +42,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useMe } from "@/lib/hooks";
 import { runBlock, shortError } from "@/lib/engine";
 import { evaluateCondition } from "@/lib/condition";
 import { interpolate } from "@/lib/variables";
@@ -94,6 +93,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -198,31 +198,34 @@ function AddBlockMenu({
         {showRecipes && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>{recipesLabel}</DropdownMenuLabel>
-            {recipes.map((recipe) => (
-              <DropdownMenuItem
-                key={recipe.id}
-                onClick={() => onInsertRecipe(recipe)}
-                className="gap-2"
-              >
-                <BookMarked className="size-3.5 text-muted-foreground" />
-                <span className="flex min-w-0 flex-col gap-0">
-                  <span className="truncate text-xs font-medium leading-4">
-                    {recipe.name}
+            {/* Base UI requires group labels to live inside a Menu.Group. */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>{recipesLabel}</DropdownMenuLabel>
+              {recipes.map((recipe) => (
+                <DropdownMenuItem
+                  key={recipe.id}
+                  onClick={() => onInsertRecipe(recipe)}
+                  className="gap-2"
+                >
+                  <BookMarked className="size-3.5 text-muted-foreground" />
+                  <span className="flex min-w-0 flex-col gap-0">
+                    <span className="truncate text-xs font-medium leading-4">
+                      {recipe.name}
+                    </span>
+                    <span className="truncate text-[11px] leading-4 text-muted-foreground">
+                      {recipe.description ||
+                        `${recipe.blocks.length} ${recipe.blocks.length === 1 ? "block" : "blocks"}`}
+                    </span>
                   </span>
-                  <span className="truncate text-[11px] leading-4 text-muted-foreground">
-                    {recipe.description ||
-                      `${recipe.blocks.length} ${recipe.blocks.length === 1 ? "block" : "blocks"}`}
-                  </span>
-                </span>
-              </DropdownMenuItem>
-            ))}
-            {onManageRecipes && (
-              <DropdownMenuItem onClick={onManageRecipes} className="gap-2">
-                <Settings2 className="size-3.5 text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Manage recipes…</span>
-              </DropdownMenuItem>
-            )}
+                </DropdownMenuItem>
+              ))}
+              {onManageRecipes && (
+                <DropdownMenuItem onClick={onManageRecipes} className="gap-2">
+                  <Settings2 className="size-3.5 text-muted-foreground" />
+                  <span className="text-xs text-muted-foreground">Manage recipes…</span>
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuGroup>
           </>
         )}
       </DropdownMenuContent>
@@ -276,7 +279,6 @@ export function NotebookEditor({
   const { address: account } = useAccount();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const { data: me } = useMe();
 
   const blocks = useNotebookStore((s) => s.blocks);
   const readOnly = useNotebookStore((s) => s.readOnly);
@@ -360,10 +362,11 @@ export function NotebookEditor({
     }
   }, [notebook, savedRunState, hydrateRunState]);
 
-  // Viewers get a read-only notebook: no edits, no autosave — running still works.
+  // Viewers get a read-only notebook: no edits, no autosave — running still
+  // works. Gated on the project's effective role (workspace role or grant).
   useEffect(() => {
-    setReadOnly(me?.role === "viewer");
-  }, [me?.role, setReadOnly]);
+    setReadOnly(project.role === "viewer");
+  }, [project.role, setReadOnly]);
 
   const saveMeta = useMutation({
     mutationFn: () => api.notebooks.update(notebookId, { title, description }),

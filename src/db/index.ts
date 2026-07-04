@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS invites (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   wallet TEXT NOT NULL,
   role TEXT NOT NULL,
+  project_id TEXT,
   invited_by TEXT,
   status TEXT NOT NULL,
   created_at INTEGER NOT NULL
@@ -166,6 +167,15 @@ CREATE TABLE IF NOT EXISTS state_titles (
   text TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS project_members (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS project_members_proj_user_uq
+  ON project_members(project_id, user_id);
 `);
 
 // Lightweight migrations for databases created before these columns existed.
@@ -184,6 +194,7 @@ addColumn(
 );
 addColumn("ALTER TABLE state_views ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
 addColumn("ALTER TABLE state_views ADD COLUMN span INTEGER NOT NULL DEFAULT 2");
+addColumn("ALTER TABLE invites ADD COLUMN project_id TEXT");
 
 // Seed the instance workspace and the implicit local-mode owner. Idempotent;
 // pre-workspace databases are adopted automatically (their projects carry the

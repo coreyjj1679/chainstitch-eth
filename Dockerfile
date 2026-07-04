@@ -5,6 +5,11 @@
 
 FROM node:22-slim AS deps
 WORKDIR /app
+# python3/make/g++: some transitive native modules (e.g. utf-8-validate via
+# the MetaMask SDK) ship no linux-arm64 prebuilds and must compile from source.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json .npmrc* ./
 RUN npm ci
 
