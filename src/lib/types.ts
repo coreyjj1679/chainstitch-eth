@@ -191,6 +191,13 @@ export interface InviteInfo {
   createdAt: number;
 }
 
+/** "Anyone with the link" state for one project (owners only). */
+export interface ShareLink {
+  token: string;
+  role: WorkspaceRole;
+  createdAt: number;
+}
+
 /** Share dialog: everyone with access to one project, plus pending invites. */
 export interface ProjectAccess {
   members: Array<{

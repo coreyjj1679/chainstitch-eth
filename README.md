@@ -111,7 +111,10 @@ drop into any notebook from the add-block menu, either as a linked **Recipe
 cell** that reruns every step in one click, or pasted as editable blocks
 (a linked cell can be “detached” into blocks later). Steps keep full notebook
 semantics: they read and write `{{variables}}`, `if` groups and “run when”
-guards skip what shouldn't run, and sender groups pick the caller.
+guards skip what shouldn't run, and sender groups pick the caller. Recipes
+stay editable: reorder or remove steps from the Recipes tab, or overwrite one
+with a fresh selection via the bookmark dialog's “Save to” picker — linked
+cells follow automatically.
 
 <p align="center">
   <img src="screenshots/recipe-cell.png" alt="A recipe cell inside a sender group after two runs — the Steps tab shows the allowance read, the resolved if-condition and the skipped approve">
@@ -135,7 +138,9 @@ guards skip what shouldn't run, and sender groups pick the caller.
   on prior outputs holds (`{{allowance}} < {{amount}}` → approve only when
   needed); a per-block "run when" guard does the same for single cells.
 - **Team workspaces** *(optional)* — Sign-In with Ethereum, invite-only access
-  by wallet address, viewer / editor / owner roles.
+  by wallet address, viewer / editor / owner roles. Share the whole workspace
+  from Settings, or a single project from its Google-Docs-style **Share**
+  button.
 
 ## Quick start
 
@@ -188,11 +193,11 @@ BETTER_AUTH_SECRET=$(openssl rand -base64 32)  # session signing key
 APP_URL=https://notebook.example.com           # exact URL users visit
 ```
 
-Start the app, sign in with an owner wallet, then invite teammates from the
-account menu — an invite is just a wallet address and a role, claimed
-automatically the first time that wallet signs in. The sign-in signature is
-domain-bound to `APP_URL`, costs nothing, and never touches a chain — it's
-identity only. Roles:
+Start the app, sign in with an owner wallet, then invite teammates from
+**Settings** (account menu → Workspace settings) — an invite is just a wallet
+address and a role, claimed automatically the first time that wallet signs
+in. The sign-in signature is domain-bound to `APP_URL`, costs nothing, and
+never touches a chain — it's identity only. Roles:
 
 | Role | Can do |
 | --- | --- |
@@ -201,11 +206,30 @@ identity only. Roles:
 | owner | + project settings & RPC URLs, members & invites, deletes |
 
 An invite grants the whole workspace by default, but can be scoped to a
-**single project** instead (pick one in the invite dialog): the wallet gets
-that role on that project only and sees nothing else — handy for auditors or
-outside collaborators. For existing members a project grant can raise (never
-lower) their role on that one project. Note that project access includes the
-project's RPC URL, since blocks execute in the member's browser.
+**single project** instead — pick a scope in Settings, or use the **Share**
+button in any project's header (Google-Docs style: wallet + role, see who has
+access, revoke). A project-scoped wallet gets that role on that project only
+and sees nothing else — handy for auditors or outside collaborators — and
+project owners can share their own project onward without any workspace-wide
+rights. For existing members a project grant can raise (never lower) their
+role on that one project. Note that project access includes the project's RPC
+URL, since blocks execute in the member's browser.
+
+The Share dialog can also turn on **“anyone with the link”**: a secret URL
+that opens that one project without any sign-in, as viewer (view & run) or
+editor — wallets never see it, reads still run from the visitor's browser.
+Resetting the link invalidates every copy that was handed out; turning it off
+does so instantly. Owner rights are never grantable by link.
+
+<p align="center">
+  <img src="screenshots/share-dialog.png" alt="The project Share dialog: invite a wallet with a role, see who has access and via what, revoke grants and pending invites">
+  <br><sub>Every project has a Share dialog: invite by wallet, choose a role, see who has access (and why), revoke in one click.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshots/settings.png" alt="The Settings page: invite form with workspace/project scope, member list with roles and project grants, pending invites">
+  <br><sub>Workspace-wide access lives in <b>Settings</b> — members, roles, per-project grants and pending invites in one place.</sub>
+</p>
 
 Switching an existing local instance to team mode keeps all your projects; they
 become the shared workspace, owned by `OWNER_WALLETS` after first sign-in.

@@ -168,6 +168,30 @@ export const projectMembers = sqliteTable(
   (t) => [uniqueIndex("project_members_proj_user_uq").on(t.projectId, t.userId)],
 );
 
+/**
+ * "Anyone with the link" sharing: one secret token per project. Whoever
+ * presents the token (via the share cookie) gets the stored role on that
+ * project — viewer or editor, never owner. Deleting the row (or rotating
+ * the token) kills every link that was handed out.
+ */
+export const projectShareLinks = sqliteTable(
+  "project_share_links",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    token: text("token").notNull(),
+    role: text("role").$type<WorkspaceRole>().notNull(),
+    createdBy: text("created_by"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("project_share_links_project_uq").on(t.projectId),
+    uniqueIndex("project_share_links_token_uq").on(t.token),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Core content tables.
 // ---------------------------------------------------------------------------

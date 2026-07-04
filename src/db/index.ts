@@ -176,6 +176,18 @@ CREATE TABLE IF NOT EXISTS project_members (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS project_members_proj_user_uq
   ON project_members(project_id, user_id);
+CREATE TABLE IF NOT EXISTS project_share_links (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  token TEXT NOT NULL,
+  role TEXT NOT NULL,
+  created_by TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS project_share_links_project_uq
+  ON project_share_links(project_id);
+CREATE UNIQUE INDEX IF NOT EXISTS project_share_links_token_uq
+  ON project_share_links(token);
 `);
 
 // Lightweight migrations for databases created before these columns existed.

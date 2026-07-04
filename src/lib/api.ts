@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectAccess,
   Recipe,
+  ShareLink,
   StateLayout,
   WorkspaceRole,
 } from "@/lib/types";
@@ -58,6 +59,16 @@ export const api = {
     list: () => request<Project[]>("/api/projects"),
     get: (id: string) => request<Project>(`/api/projects/${id}`),
     access: (id: string) => request<ProjectAccess>(`/api/projects/${id}/access`),
+    shareLink: {
+      get: (id: string) => request<ShareLink | null>(`/api/projects/${id}/share-link`),
+      set: (id: string, role: WorkspaceRole, reset = false) =>
+        request<ShareLink>(`/api/projects/${id}/share-link`, {
+          method: "PUT",
+          body: JSON.stringify({ role, reset }),
+        }),
+      disable: (id: string) =>
+        request(`/api/projects/${id}/share-link`, { method: "DELETE" }),
+    },
     create: (data: {
       name: string;
       chainId: number;

@@ -300,6 +300,92 @@ async function main() {
       "revoked guest loses access immediately",
     );
     ok((await siweLogin(STRANGER_KEY)) === null, "revoked guest cannot sign back in");
+
+    // "Anyone with the link": no account required at all
+    const linkRes = await owner("PUT", `/api/projects/${projectId}/share-link`, {
+      role: "viewer",
+    });
+    ok(linkRes.status === 200, "owner turns on link sharing");
+    const token = (linkRes.json as { token: string }).token;
+
+    const landing = await fetch(`${BASE}/share/${token}`, { redirect: "manual" });
+    ok(
+      landing.status === 307 &&
+        landing.headers.get("location")?.includes(`/p/${projectId}`),
+      "share link redirects to the project",
+    );
+    const shareSetCookie = landing.headers
+      .getSetCookie()
+      .find((c) => c.startsWith("chainstitch_share="));
+    ok(!!shareSetCookie, "share link sets the guest cookie");
+    const linkGuest = client(shareSetCookie!.split(";")[0]);
+
+    const lgMe = (await linkGuest("GET", "/api/me")).json as {
+      role: string | null;
+      user: { id: string };
+      projectRoles: Record<string, string>;
+    };
+    ok(
+      lgMe.role === null &&
+        lgMe.user.id === "link-guest" &&
+        lgMe.projectRoles[projectId] === "viewer",
+      "link guest is anonymous with the link's role",
+    );
+    const lgProjects = await linkGuest("GET", "/api/projects");
+    ok(
+      lgProjects.status === 200 && (lgProjects.json as unknown[]).length === 1,
+      "link guest sees exactly the shared project",
+    );
+    ok(
+      (await linkGuest("GET", `/p/${projectId}`)).status === 200,
+      "link guest can open project pages",
+    );
+    ok(
+      (await linkGuest("POST", `/api/projects/${projectId}/notebooks`, { title: "x" }))
+        .status === 403,
+      "a viewer link cannot edit",
+    );
+    ok(
+      (await linkGuest("GET", "/api/workspace/members")).status === 403,
+      "link guest cannot see the member roster",
+    );
+    ok(
+      (await fetch(`${BASE}/share/not-a-real-token`, { redirect: "manual" })).headers
+        .get("location")
+        ?.includes("/login") ?? false,
+      "an invalid link lands on the login page",
+    );
+
+    // Editor links can edit; resetting the link cuts old holders off
+    ok(
+      (await owner("PUT", `/api/projects/${projectId}/share-link`, { role: "editor" }))
+        .status === 200,
+      "owner bumps the link to editor",
+    );
+    ok(
+      (
+        await linkGuest("POST", `/api/projects/${projectId}/notebooks`, {
+          title: "From link",
+        })
+      ).status === 200,
+      "an editor link can edit",
+    );
+    const resetRes = await owner("PUT", `/api/projects/${projectId}/share-link`, {
+      role: "editor",
+      reset: true,
+    });
+    ok(
+      (resetRes.json as { token: string }).token !== token,
+      "resetting issues a fresh token",
+    );
+    ok(
+      (await linkGuest("GET", "/api/projects")).status === 401,
+      "the old link stops working after reset",
+    );
+    ok(
+      (await owner("DELETE", `/api/projects/${projectId}/share-link`)).status === 200,
+      "owner turns link sharing off",
+    );
   } finally {
     // Wait for the server to actually exit before deleting its dirs.
     const exited = new Promise<void>((resolve) => {

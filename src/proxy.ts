@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getSessionCookie } from "better-auth/cookies";
+import { SHARE_COOKIE } from "@/lib/share-cookie";
 
 /**
  * Optimistic auth redirects for team mode (cookie presence only — real
@@ -14,14 +15,19 @@ export default function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   // API routes authenticate per-request in the DAL (401 JSON, not redirects).
   if (pathname.startsWith("/api")) return NextResponse.next();
+  // Share-link landing must stay reachable without any cookie at all.
+  if (pathname.startsWith("/share")) return NextResponse.next();
 
   const hasSession = !!getSessionCookie(request);
+  // "Anyone with the link" guests carry the share cookie instead of a
+  // session; token validity is checked per-request in the DAL.
+  const hasShareLink = !!request.cookies.get(SHARE_COOKIE)?.value;
   if (pathname === "/login") {
     return hasSession
       ? NextResponse.redirect(new URL("/", request.url))
       : NextResponse.next();
   }
-  if (!hasSession) {
+  if (!hasSession && !hasShareLink) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   return NextResponse.next();

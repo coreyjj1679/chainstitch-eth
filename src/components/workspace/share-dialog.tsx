@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAddress } from "viem";
-import { Globe, Share2, Trash2, UserPlus } from "lucide-react";
+import { Copy, Globe, Link2, RefreshCw, Share2, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
@@ -31,8 +31,136 @@ const ROLES: Array<{ value: WorkspaceRole; label: string; hint: string }> = [
   { value: "owner", label: "Owner", hint: "project settings & sharing too" },
 ];
 
+/** Links can carry view or edit rights — never ownership. */
+const LINK_ROLES: Array<{ value: WorkspaceRole; label: string }> = [
+  { value: "viewer", label: "can view & run" },
+  { value: "editor", label: "can edit" },
+];
+
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+/** Google-Docs-style "anyone with the link" controls for one project. */
+function LinkSharing({ projectId }: { projectId: string }) {
+  const queryClient = useQueryClient();
+  const link = useQuery({
+    queryKey: ["shareLink", projectId],
+    queryFn: () => api.projects.shareLink.get(projectId),
+  });
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["shareLink", projectId] });
+
+  const set = useMutation({
+    mutationFn: ({ role, reset }: { role: WorkspaceRole; reset?: boolean }) =>
+      api.projects.shareLink.set(projectId, role, reset ?? false),
+    onSuccess: (created, vars) => {
+      invalidate();
+      if (vars.reset) toast.success("Link reset — previously shared links no longer work");
+      else navigator.clipboard.writeText(shareUrl(created.token)).then(
+        () => toast.success("Link sharing is on — URL copied to clipboard"),
+        () => toast.success("Link sharing is on"),
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const disable = useMutation({
+    mutationFn: () => api.projects.shareLink.disable(projectId),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Link sharing is off — shared links no longer work");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const shareUrl = (token: string) => `${window.location.origin}/share/${token}`;
+
+  if (!link.data) {
+    return (
+      <div className="flex items-center gap-3 rounded-lg border border-dashed px-3 py-2.5">
+        <Link2 className="size-4 shrink-0 text-muted-foreground" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm">Anyone with the link</p>
+          <p className="text-xs text-muted-foreground">
+            Off — only the people listed below can open this project.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={set.isPending || link.isLoading}
+          onClick={() => set.mutate({ role: "viewer" })}
+        >
+          Turn on
+        </Button>
+      </div>
+    );
+  }
+
+  const url = shareUrl(link.data.token);
+  return (
+    <div className="grid gap-2 rounded-lg border px-3 py-2.5">
+      <div className="flex items-center gap-3">
+        <Link2 className="size-4 shrink-0 text-primary" />
+        <p className="min-w-0 flex-1 text-sm">Anyone with the link</p>
+        <Select
+          value={link.data.role}
+          items={LINK_ROLES.map((r) => ({ value: r.value, label: r.label }))}
+          onValueChange={(v) => set.mutate({ role: (v as WorkspaceRole) ?? "viewer" })}
+        >
+          <SelectTrigger className="h-7 w-36 text-xs" size="sm">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {LINK_ROLES.map((r) => (
+              <SelectItem key={r.value} value={r.value}>
+                {r.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex gap-2">
+        <Input readOnly className="h-8 font-mono text-xs" value={url} />
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8"
+          onClick={() => {
+            navigator.clipboard.writeText(url);
+            toast.success("Link copied");
+          }}
+        >
+          <Copy data-icon="inline-start" />
+          Copy
+        </Button>
+      </div>
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+          No sign-in needed. Anyone opening it{" "}
+          {link.data.role === "editor" ? "can edit this project" : "can view & run"}.
+        </p>
+        <Button
+          variant="ghost"
+          size="xs"
+          title="Issue a new link — the old one stops working"
+          disabled={set.isPending}
+          onClick={() => set.mutate({ role: link.data!.role, reset: true })}
+        >
+          <RefreshCw data-icon="inline-start" />
+          Reset
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          disabled={disable.isPending}
+          onClick={() => disable.mutate()}
+        >
+          Turn off
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /**
@@ -111,6 +239,7 @@ export function ShareProjectDialog({ project }: { project: Project }) {
               />
               <Select
                 value={role}
+                items={ROLES.map((r) => ({ value: r.value, label: r.label }))}
                 onValueChange={(v) => setRole((v as WorkspaceRole) ?? "viewer")}
               >
                 <SelectTrigger className="h-9 w-28" size="sm">
@@ -137,6 +266,8 @@ export function ShareProjectDialog({ project }: { project: Project }) {
               in — no email needed. {ROLES.find((r) => r.value === role)?.hint}.
             </p>
           </div>
+
+          <LinkSharing projectId={project.id} />
 
           <div className="grid gap-2">
             {access.data?.members.map((member) => {

@@ -1,10 +1,14 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db, schema, DEFAULT_WORKSPACE_ID, LOCAL_USER_ID } from "@/db";
 import { auth } from "@/server/auth";
 import { appMode } from "@/server/mode";
+import { parseShareTokens } from "@/lib/share-cookie";
 import { forbidden, notFound, unauthorized } from "@/server/errors";
 import type { WorkspaceRole } from "@/db/schema";
+
+/** Pseudo-identity for anonymous "anyone with the link" visitors. */
+export const LINK_GUEST_ID = "link-guest";
 
 export interface AuthContext {
   userId: string;
@@ -17,10 +21,26 @@ export interface AuthContext {
 
 const ROLE_RANK: Record<WorkspaceRole, number> = { viewer: 1, editor: 2, owner: 3 };
 
+/** Share-link tokens from the cookie → per-project grants. */
+async function linkGrants(headers: Headers): Promise<Record<string, WorkspaceRole>> {
+  const tokens = parseShareTokens(headers.get("cookie"));
+  if (tokens.length === 0) return {};
+  const rows = await db
+    .select({
+      projectId: schema.projectShareLinks.projectId,
+      role: schema.projectShareLinks.role,
+    })
+    .from(schema.projectShareLinks)
+    .where(inArray(schema.projectShareLinks.token, tokens));
+  const grants: Record<string, WorkspaceRole> = {};
+  for (const row of rows) grants[row.projectId] = row.role;
+  return grants;
+}
+
 /**
  * Resolve the caller for a request. Local mode: the implicit owner, no auth.
- * Team mode: better-auth session (401 when absent) + workspace membership
- * + any per-project grants.
+ * Team mode: better-auth session (or an "anyone with the link" cookie — 401
+ * when neither is present) + workspace membership + per-project grants.
  */
 export async function getAuthContext(headers: Headers): Promise<AuthContext> {
   if (appMode() === "local") {
@@ -33,7 +53,19 @@ export async function getAuthContext(headers: Headers): Promise<AuthContext> {
   }
 
   const session = await auth.api.getSession({ headers });
-  if (!session) throw unauthorized();
+  const shared = await linkGrants(headers);
+
+  if (!session) {
+    // No account, but valid share links: an anonymous guest with exactly
+    // those projects. Real enforcement stays in the DAL role checks.
+    if (Object.keys(shared).length === 0) throw unauthorized();
+    return {
+      userId: LINK_GUEST_ID,
+      workspaceId: DEFAULT_WORKSPACE_ID,
+      role: null,
+      projectRoles: shared,
+    };
+  }
 
   const [membership] = await db
     .select({ role: schema.workspaceMembers.role })
@@ -53,6 +85,14 @@ export async function getAuthContext(headers: Headers): Promise<AuthContext> {
     .where(eq(schema.projectMembers.userId, session.user.id));
   const projectRoles: Record<string, WorkspaceRole> = {};
   for (const grant of grants) projectRoles[grant.projectId] = grant.role;
+  // A signed-in user who opened a share link gets the link's role too
+  // (the higher role wins, links never lower existing access).
+  for (const [projectId, role] of Object.entries(shared)) {
+    const current = projectRoles[projectId];
+    if (!current || ROLE_RANK[role] > ROLE_RANK[current]) {
+      projectRoles[projectId] = role;
+    }
+  }
 
   return {
     userId: session.user.id,

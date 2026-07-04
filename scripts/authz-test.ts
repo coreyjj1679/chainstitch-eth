@@ -615,6 +615,45 @@ async function main() {
     "project owner revokes a grant on their project",
   );
 
+  // --- "Anyone with the link" ------------------------------------------------
+  const shareLinks = await import("../src/server/dal/share-links");
+  const link = await shareLinks.upsertShareLink(owner, side.id, "viewer");
+  ok(link.token.length >= 32, "owner enables link sharing");
+  await expectStatus(
+    shareLinks.upsertShareLink(editor, side.id, "viewer"),
+    403,
+    "editors cannot manage the share link",
+  );
+  await expectStatus(
+    shareLinks.upsertShareLink(owner, side.id, "owner"),
+    400,
+    "a link can never grant owner",
+  );
+  ok(
+    (await shareLinks.resolveShareTokens([link.token]))[side.id] === "viewer",
+    "a valid token resolves to its project grant",
+  );
+  const updated = await shareLinks.upsertShareLink(owner, side.id, "editor");
+  ok(
+    updated.token === link.token && updated.role === "editor",
+    "changing the role keeps the token",
+  );
+  const rotated = await shareLinks.upsertShareLink(owner, side.id, "editor", true);
+  ok(rotated.token !== link.token, "reset rotates the token");
+  ok(
+    Object.keys(await shareLinks.resolveShareTokens([link.token])).length === 0,
+    "the old token stops resolving after reset",
+  );
+  await shareLinks.deleteShareLink(owner, side.id);
+  ok(
+    (await shareLinks.getShareLink(owner, side.id)) === null,
+    "owner turns link sharing off",
+  );
+  ok(
+    Object.keys(await shareLinks.resolveShareTokens([rotated.token])).length === 0,
+    "disabled links stop resolving",
+  );
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 }

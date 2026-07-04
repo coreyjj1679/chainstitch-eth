@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db";
-import { getAuthContext } from "@/server/auth-context";
+import { getAuthContext, LINK_GUEST_ID } from "@/server/auth-context";
 import { appMode } from "@/server/mode";
 import { handleApiError } from "@/server/errors";
 
@@ -17,7 +17,10 @@ export async function GET(request: Request) {
 
     let name = "Local";
     let wallets: string[] = [];
-    if (mode === "team") {
+    if (mode === "team" && ctx.userId === LINK_GUEST_ID) {
+      // Anonymous "anyone with the link" visitor — no account behind it.
+      name = "Link guest";
+    } else if (mode === "team") {
       const [user] = await db
         .select({ name: schema.user.name })
         .from(schema.user)
