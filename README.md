@@ -184,6 +184,30 @@ environment variable apart:
 | Sharing | — | invite by wallet address, with roles |
 | Best for | your laptop, trusted networks | a team instance on a server |
 
+### From clone to team, start to finish
+
+1. **Get a box and a name.** Any small VPS works. Point a DNS record (say
+   `notebook.example.com`) at it and clone the repo there.
+2. **Terminate TLS in front.** Sessions and wallet sign-in are domain-bound,
+   so serve HTTPS. With Caddy that's the whole config:
+
+```
+notebook.example.com {
+    reverse_proxy localhost:3000
+}
+```
+
+3. **Configure team mode.** `cp .env.example .env` and set the four
+   variables below. `APP_URL` must be the *exact* URL the team will type.
+4. **Start it.** `docker compose up -d --build` (compose picks up `.env`) —
+   or see [Deploy with Node](#deploy-with-node).
+5. **Sign in and share.** Open the domain, sign in with an `OWNER_WALLETS`
+   wallet, and hand out access at whichever radius fits: the whole workspace
+   (**Settings** → invite by wallet + role), a single project (its **Share**
+   button), or an **anyone-with-the-link** URL for view/edit access with no
+   account at all. Teammates just open the site and sign with their wallet —
+   invites are claimed on first sign-in, no email involved.
+
 ### Team mode in four variables
 
 ```bash
