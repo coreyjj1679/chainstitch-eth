@@ -40,6 +40,14 @@ export function useNotebooks(projectId: string) {
   });
 }
 
+export function useRecipes(projectId: string) {
+  return useQuery({
+    queryKey: ["recipes", projectId],
+    queryFn: () => api.recipes.list(projectId),
+    enabled: !!projectId,
+  });
+}
+
 export function useStateViews(projectId: string) {
   return useQuery({
     queryKey: ["stateViews", projectId],

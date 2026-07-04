@@ -57,6 +57,7 @@ export async function getNotebookWithBlocks(ctx: AuthContext, id: string) {
       config: JSON.parse(b.config) as unknown,
       outputVariable: b.outputVariable,
       parentId: b.parentId ?? null,
+      runWhen: b.runWhen ?? null,
     })),
   };
 }
@@ -157,6 +158,7 @@ export interface IncomingBlock {
   config: unknown;
   outputVariable?: string | null;
   parentId?: string | null;
+  runWhen?: string | null;
 }
 
 /** Replace-all block save (the editor autosaves the full list). */
@@ -181,6 +183,7 @@ export async function saveBlocks(
             config: JSON.stringify(b.config ?? {}),
             outputVariable: b.outputVariable ?? null,
             parentId: b.parentId ?? null,
+            runWhen: b.runWhen ?? null,
           })),
         )
         .run();

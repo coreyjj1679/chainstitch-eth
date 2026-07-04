@@ -6,6 +6,7 @@ import {
   ChevronRight,
   CircleAlert,
   CircleCheck,
+  CircleSlash,
   ExternalLink,
 } from "lucide-react";
 import { displayValue } from "@/lib/serialize";
@@ -170,7 +171,15 @@ function DetailTabs({
   };
 
   const tabs = [
-    ...(result.details ? [{ value: "call", label: "Call" }] : []),
+    ...(result.details
+      ? [
+          {
+            value: "call",
+            // Recipe cells put their per-step outcomes here.
+            label: result.kind?.startsWith("Recipe") ? "Steps" : "Call",
+          },
+        ]
+      : []),
     ...(result.txDetails ? [{ value: "tx", label: "Transaction" }] : []),
     { value: "run", label: "Run" },
     { value: "history", label: `History (${history.length})` },
@@ -263,6 +272,15 @@ export function ResultPanel({
       <div className="mt-2 flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
         <span className="size-2 animate-pulse rounded-full bg-primary" />
         Running…
+      </div>
+    );
+  }
+
+  if (result.status === "skipped") {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-xs text-muted-foreground/70">
+        <CircleSlash className="size-3.5 shrink-0" />
+        {result.kind ?? "Skipped"}
       </div>
     );
   }

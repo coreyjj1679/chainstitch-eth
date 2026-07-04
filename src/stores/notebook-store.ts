@@ -1,7 +1,7 @@
 "use client";
 
 import { create } from "zustand";
-import { constantScope, isBlockConfigured } from "@/lib/block-label";
+import { constantScope, isBlockConfigured, isGroupType } from "@/lib/block-label";
 import type {
   BlockConfig,
   BlockResult,
@@ -26,6 +26,10 @@ function defaultConfig(type: BlockType): BlockConfig {
       return { address: "", simulateOnly: true };
     case "variable":
       return { name: "", value: "" };
+    case "if":
+      return { condition: "" };
+    case "recipe":
+      return { recipeId: "" };
   }
 }
 
@@ -57,6 +61,15 @@ interface NotebookState {
   setReadOnly: (readOnly: boolean) => void;
   addBlock: (type: BlockType, afterId?: string) => string;
   insertBlockAt: (type: BlockType, index: number) => string;
+  /**
+   * Insert deep copies of `blocks` (e.g. a recipe payload) at `index`,
+   * re-minting ids and remapping parent links. Returns the new ids.
+   */
+  insertBlocksAt: (
+    blocks: NotebookBlock[],
+    index: number,
+    parentId?: string | null,
+  ) => string[];
   /** Append a block inside a sender group */
   addBlockToGroup: (type: BlockType, parentId: string) => string;
   /** Duplicate a block (and, for sender groups, its children) right below it */
@@ -67,6 +80,8 @@ interface NotebookState {
   toggleShowDetails: () => void;
   updateBlockConfig: (id: string, config: Partial<BlockConfig>) => void;
   setOutputVariable: (id: string, name: string | null) => void;
+  /** Set/clear a block's "run when" guard condition. */
+  setRunWhen: (id: string, condition: string | null) => void;
   removeBlock: (id: string) => void;
   /** Move a block before `overId` (or to the end) and into `parentId` (null = top level) */
   moveBlockTo: (activeId: string, parentId: string | null, overId: string | null) => void;
@@ -173,8 +188,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       type,
       config: defaultConfig(type),
       outputVariable: null,
-      // Stay in the same group as the anchor block (senders are top-level only)
-      parentId: type === "sender" ? null : (after?.parentId ?? null),
+      // Stay in the same group as the anchor block (groups are top-level only)
+      parentId: isGroupType(type) ? null : (after?.parentId ?? null),
     };
     const index = after ? blocks.indexOf(after) : -1;
     if (index >= 0) blocks.splice(index + 1, 0, block);
@@ -207,6 +222,38 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
     return id;
   },
 
+  insertBlocksAt: (incoming, index, parentId = null) => {
+    if (get().readOnly || incoming.length === 0) return [];
+    const idMap = new Map<string, string>();
+    for (const b of incoming) idMap.set(b.id, crypto.randomUUID());
+    const copies: NotebookBlock[] = incoming.map((b) => ({
+      id: idMap.get(b.id)!,
+      type: b.type,
+      config: JSON.parse(JSON.stringify(b.config)) as BlockConfig,
+      outputVariable: b.outputVariable ?? null,
+      // Internal parent links follow the copies; loose blocks land in the
+      // target group (groups themselves stay top-level, they never nest).
+      parentId: b.parentId
+        ? (idMap.get(b.parentId) ?? null)
+        : isGroupType(b.type)
+          ? null
+          : parentId,
+      runWhen: b.runWhen ?? null,
+    }));
+    const blocks = [...get().blocks];
+    blocks.splice(Math.max(0, Math.min(index, blocks.length)), 0, ...copies);
+    set((state) => ({
+      blocks,
+      scope: { ...state.scope, ...constantScope(blocks) },
+      editing: {
+        ...state.editing,
+        ...Object.fromEntries(copies.map((c) => [c.id, false])),
+      },
+      dirty: true,
+    }));
+    return copies.map((c) => c.id);
+  },
+
   addBlockToGroup: (type, parentId) => {
     if (get().readOnly) return "";
     const id = crypto.randomUUID();
@@ -215,7 +262,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       type,
       config: defaultConfig(type),
       outputVariable: null,
-      parentId: type === "sender" ? null : parentId,
+      parentId: isGroupType(type) ? null : parentId,
     };
     set((state) => ({
       blocks: [...state.blocks, block],
@@ -238,7 +285,7 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       config: JSON.parse(JSON.stringify(original.config)) as BlockConfig,
     };
 
-    if (original.type === "sender") {
+    if (isGroupType(original.type)) {
       // Duplicate the group and all of its children, inserted contiguously.
       const children = blocks.filter((b) => b.parentId === original.id);
       const clonedChildren = children.map((child) => ({
@@ -304,6 +351,18 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
           },
     ),
 
+  setRunWhen: (id, condition) =>
+    set((state) =>
+      state.readOnly
+        ? state
+        : {
+            blocks: state.blocks.map((b) =>
+              b.id === id ? { ...b, runWhen: condition } : b,
+            ),
+            dirty: true,
+          },
+    ),
+
   toggleShowDetails: () => set((state) => ({ showDetails: !state.showDetails })),
 
   removeBlock: (id) =>
@@ -338,8 +397,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
       const [moved] = blocks.splice(from, 1);
       const updated: NotebookBlock = {
         ...moved,
-        // sender groups can't nest
-        parentId: moved.type === "sender" ? null : parentId,
+        // groups can't nest
+        parentId: isGroupType(moved.type) ? null : parentId,
       };
       const to = overId ? blocks.findIndex((b) => b.id === overId) : -1;
       if (to >= 0) blocks.splice(to, 0, updated);
@@ -350,6 +409,9 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   setResult: (id, result) =>
     set((state) => {
       const finished = result.status === "success" || result.status === "error";
+      // Skipped blocks (false condition) persist but never count as executions:
+      // no exec index, no history entry.
+      const skipped = result.status === "skipped";
       const execCounter = finished ? state.execCounter + 1 : state.execCounter;
       const stored = finished ? { ...result, execIndex: execCounter } : result;
       // Finished runs are prepended to the block's history (newest first).
@@ -363,8 +425,8 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
         results: { ...state.results, [id]: stored },
         history,
         execCounter,
-        runDirty: finished ? true : state.runDirty,
-        runRevision: finished ? state.runRevision + 1 : state.runRevision,
+        runDirty: finished || skipped ? true : state.runDirty,
+        runRevision: finished || skipped ? state.runRevision + 1 : state.runRevision,
       };
     }),
 

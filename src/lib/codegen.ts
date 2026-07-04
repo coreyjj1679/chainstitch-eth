@@ -1,9 +1,11 @@
 import type { AbiFunction } from "viem";
 import { getFunctions } from "@/lib/abi";
+import { executionOrder } from "@/lib/block-label";
 import { getRpcMethod } from "@/lib/rpc-methods";
 import type {
   CallConfig,
   ContractEntry,
+  IfConfig,
   NotebookBlock,
   Project,
   RpcConfig,
@@ -489,6 +491,13 @@ export function generateBlockCode(
     const address = (block.config as SenderConfig).address || "0x…";
     return `${comment} acting as ${address} (simulation scope — impersonate this caller)`;
   }
+  if (block.type === "if") {
+    const condition = (block.config as IfConfig).condition || "…";
+    return `${comment} if ${condition}: (the blocks below run only when this holds)`;
+  }
+  if (block.type === "recipe") {
+    return `${comment} recipe cell — reruns a saved recipe (see the project's Recipes tab)`;
+  }
   if (block.type === "variable") {
     return generateVariableCode(block.config as VariableConfig, flavor);
   }
@@ -543,7 +552,8 @@ export function generateNotebookCode(
 ): string {
   const comment = COMMENT_PREFIX[flavor];
   const parts: string[] = [notebookPrelude(project, flavor)];
-  for (const block of blocks) {
+  // Execution order keeps group children right below their group's comment.
+  for (const block of executionOrder(blocks)) {
     if (block.type === "markdown") continue;
     const code = generateBlockCode(block, contracts, project, flavor);
     if (code) parts.push(code);

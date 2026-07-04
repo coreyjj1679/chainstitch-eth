@@ -188,6 +188,25 @@ export const blocks = sqliteTable("blocks", {
   config: text("config").notNull(),
   outputVariable: text("output_variable"),
   parentId: text("parent_id"),
+  /** Optional "run when" guard condition (see lib/condition.ts). */
+  runWhen: text("run_when"),
+});
+
+/**
+ * Reusable named block groups ("recipes"), scoped to a project (block configs
+ * reference the project's address book). Stored as one JSON array of block
+ * definitions — recipes are atomic payloads, inserted as editable copies.
+ */
+export const recipes = sqliteTable("recipes", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description"),
+  blocks: text("blocks").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 /**

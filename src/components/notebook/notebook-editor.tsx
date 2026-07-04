@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPublicClient, http, isAddress, type PublicClient } from "viem";
 import { useAccount, useConfig } from "wagmi";
@@ -17,6 +18,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import {
+  BookMarked,
+  BookmarkPlus,
   Braces,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -25,12 +28,14 @@ import {
   Download,
   Eye,
   FlaskConical,
+  GitBranch,
   Info,
   ListRestart,
   Pencil,
   Play,
   Plus,
   Radio,
+  Settings2,
   StepForward,
   UserRound,
   Variable,
@@ -39,8 +44,9 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/hooks";
 import { runBlock, shortError } from "@/lib/engine";
+import { evaluateCondition } from "@/lib/condition";
 import { interpolate } from "@/lib/variables";
-import { executionOrder } from "@/lib/block-label";
+import { blockLabel, executionOrder, isGroupType } from "@/lib/block-label";
 import { parseBigIntSafe, stringifyBigIntSafe } from "@/lib/serialize";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
 import { chainForProject } from "@/components/wallet/project-web3-provider";
@@ -52,15 +58,22 @@ import { RpcBlock } from "@/components/notebook/rpc-block";
 import { MarkdownBlock } from "@/components/notebook/markdown-block";
 import { SenderBlock } from "@/components/notebook/sender-block";
 import { VariableBlock } from "@/components/notebook/variable-block";
+import { IfBlock } from "@/components/notebook/if-block";
+import { RecipeBlock } from "@/components/notebook/recipe-block";
 import { CodePanel } from "@/components/notebook/code-panel";
+import { SaveRecipeDialog } from "@/components/notebook/recipe-dialogs";
 import type {
+  BlockResult,
   BlockType,
   CallConfig,
   ContractEntry,
+  IfConfig,
   MarkdownConfig,
   NotebookBlock,
   NotebookRunState,
   Project,
+  Recipe,
+  RecipeBlockConfig,
   RpcConfig,
   SenderConfig,
   VariableConfig,
@@ -77,6 +90,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -106,6 +121,18 @@ const BLOCK_TYPES: Array<{
     description: "Run child blocks as one caller",
     icon: UserRound,
   },
+  {
+    type: "if",
+    label: "Condition",
+    description: "Run blocks only when a condition holds",
+    icon: GitBranch,
+  },
+  {
+    type: "recipe",
+    label: "Recipe",
+    description: "Rerun a saved recipe as one cell",
+    icon: BookMarked,
+  },
 ];
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -130,11 +157,22 @@ function AddBlockMenu({
   trigger,
   onAdd,
   align = "start",
+  recipes,
+  recipesLabel = "Recipes",
+  onInsertRecipe,
+  onManageRecipes,
 }: {
   trigger: React.ReactElement;
   onAdd: (type: BlockType) => void;
   align?: "start" | "center" | "end";
+  /** Saved recipes offered below the block types (already filtered by caller). */
+  recipes?: Recipe[];
+  /** Section heading — callers use it to hint what insertion does. */
+  recipesLabel?: string;
+  onInsertRecipe?: (recipe: Recipe) => void;
+  onManageRecipes?: () => void;
 }) {
+  const showRecipes = !!onInsertRecipe && !!recipes && recipes.length > 0;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={trigger}>
@@ -152,13 +190,51 @@ function AddBlockMenu({
             </span>
           </DropdownMenuItem>
         ))}
+        {showRecipes && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{recipesLabel}</DropdownMenuLabel>
+            {recipes.map((recipe) => (
+              <DropdownMenuItem
+                key={recipe.id}
+                onClick={() => onInsertRecipe(recipe)}
+                className="gap-2"
+              >
+                <BookMarked className="size-3.5 text-muted-foreground" />
+                <span className="flex min-w-0 flex-col gap-0">
+                  <span className="truncate text-xs font-medium leading-4">
+                    {recipe.name}
+                  </span>
+                  <span className="truncate text-[11px] leading-4 text-muted-foreground">
+                    {recipe.description ||
+                      `${recipe.blocks.length} ${recipe.blocks.length === 1 ? "block" : "blocks"}`}
+                  </span>
+                </span>
+              </DropdownMenuItem>
+            ))}
+            {onManageRecipes && (
+              <DropdownMenuItem onClick={onManageRecipes} className="gap-2">
+                <Settings2 className="size-3.5 text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Manage recipes…</span>
+              </DropdownMenuItem>
+            )}
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
 /** Notion-style hover inserter between cells */
-function CellInserter({ onAdd }: { onAdd: (type: BlockType) => void }) {
+function CellInserter({
+  onAdd,
+  recipes,
+  onInsertRecipe,
+}: {
+  onAdd: (type: BlockType) => void;
+  recipes?: Recipe[];
+  onInsertRecipe?: (recipe: Recipe) => void;
+}) {
   return (
     <div className="group/ins relative -my-1 flex h-4 items-center px-11">
       <div className="h-px w-full bg-transparent transition-colors group-hover/ins:bg-border" />
@@ -166,6 +242,8 @@ function CellInserter({ onAdd }: { onAdd: (type: BlockType) => void }) {
         <AddBlockMenu
           align="center"
           onAdd={onAdd}
+          recipes={recipes}
+          onInsertRecipe={onInsertRecipe}
           trigger={
             <Button
               variant="outline"
@@ -192,6 +270,7 @@ export function NotebookEditor({
   const wagmiConfig = useConfig();
   const { address: account } = useAccount();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { data: me } = useMe();
 
   const blocks = useNotebookStore((s) => s.blocks);
@@ -205,8 +284,11 @@ export function NotebookEditor({
   const initialize = useNotebookStore((s) => s.initialize);
   const addBlock = useNotebookStore((s) => s.addBlock);
   const insertBlockAt = useNotebookStore((s) => s.insertBlockAt);
+  const insertBlocksAt = useNotebookStore((s) => s.insertBlocksAt);
   const addBlockToGroup = useNotebookStore((s) => s.addBlockToGroup);
   const updateBlockConfig = useNotebookStore((s) => s.updateBlockConfig);
+  const setEditing = useNotebookStore((s) => s.setEditing);
+  const removeBlock = useNotebookStore((s) => s.removeBlock);
   const moveBlockTo = useNotebookStore((s) => s.moveBlockTo);
   const setResult = useNotebookStore((s) => s.setResult);
   const setScopeVariable = useNotebookStore((s) => s.setScopeVariable);
@@ -226,10 +308,17 @@ export function NotebookEditor({
   const [simulateAs, setSimulateAs] = useState("");
   const [simulateError, setSimulateError] = useState<string | null>(null);
   const [simulateChecking, setSimulateChecking] = useState(false);
+  const [recipeSaveOpen, setRecipeSaveOpen] = useState(false);
+  const [recipeAnchorId, setRecipeAnchorId] = useState<string | null>(null);
 
   const { data: notebook, isLoading } = useQuery({
     queryKey: ["notebook", notebookId],
     queryFn: () => api.notebooks.get(notebookId),
+  });
+
+  const { data: recipes = [] } = useQuery({
+    queryKey: ["recipes", project.id],
+    queryFn: () => api.recipes.list(project.id),
   });
 
   const initializedFor = useRef<string | null>(null);
@@ -328,13 +417,18 @@ export function NotebookEditor({
     return () => clearTimeout(timer);
   }, [runRevision, notebook, notebookId, readOnly, markRunSaved]);
 
-  /** Resolve the sender group (if any) a block belongs to. */
+  /**
+   * Resolve the sender group (if any) a block belongs to. `list` defaults to
+   * the notebook's blocks; recipe runs pass the recipe's own block list.
+   */
   const senderScopeFor = useCallback(
-    (block: NotebookBlock): { address: `0x${string}`; simulateOnly: boolean } | null => {
+    (
+      block: NotebookBlock,
+      list?: NotebookBlock[],
+    ): { address: `0x${string}`; simulateOnly: boolean } | null => {
       if (!block.parentId) return null;
-      const parent = useNotebookStore
-        .getState()
-        .blocks.find((b) => b.id === block.parentId);
+      const all = list ?? useNotebookStore.getState().blocks;
+      const parent = all.find((b) => b.id === block.parentId);
       if (!parent || parent.type !== "sender") return null;
       const cfg = parent.config as SenderConfig;
       const resolved = String(interpolate(cfg.address, useNotebookStore.getState().scope));
@@ -346,14 +440,22 @@ export function NotebookEditor({
     [],
   );
 
-  const runOne = useCallback(
+  /**
+   * Execute one read/write/rpc block against the shared notebook scope and
+   * return its result — no store writes except output variables, so recipe
+   * steps (which have no cell of their own) can reuse it.
+   */
+  const executeBlock = useCallback(
     async (
       block: NotebookBlock,
       opts?: { mode?: "execute" | "simulate"; sender?: `0x${string}` },
-    ): Promise<boolean> => {
-      if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
-        return true;
-      setResult(block.id, { status: "running" });
+      context?: {
+        /** Block list used to resolve the block's sender group. */
+        list?: NotebookBlock[];
+        /** Fallback sender scope (e.g. the recipe cell's own group). */
+        outerSender?: { address: `0x${string}`; simulateOnly: boolean } | null;
+      },
+    ): Promise<BlockResult> => {
       const started = performance.now();
       try {
         let mode = opts?.mode ?? "execute";
@@ -361,7 +463,8 @@ export function NotebookEditor({
         let impersonate = false;
 
         // A block inside a sender group inherits its caller.
-        const scope = senderScopeFor(block);
+        const scope =
+          senderScopeFor(block, context?.list) ?? context?.outerSender ?? null;
         if (scope) {
           sender = scope.address;
           if (mode === "execute" && !scope.simulateOnly) impersonate = true;
@@ -381,7 +484,8 @@ export function NotebookEditor({
           sender,
           impersonate,
         });
-        setResult(block.id, {
+        if (block.outputVariable) setScopeVariable(block.outputVariable, outcome.value);
+        return {
           status: "success",
           value: outcome.value,
           txHash: outcome.txHash,
@@ -393,9 +497,196 @@ export function NotebookEditor({
           txDetails: outcome.txDetails,
           durationMs: Math.round(performance.now() - started),
           ranAt: Date.now(),
-        });
-        if (block.outputVariable) setScopeVariable(block.outputVariable, outcome.value);
+        };
+      } catch (e) {
+        return {
+          status: "error",
+          error: shortError(e),
+          durationMs: Math.round(performance.now() - started),
+          ranAt: Date.now(),
+        };
+      }
+    },
+    [publicClient, contracts, wagmiConfig, account, setScopeVariable, senderScopeFor],
+  );
+
+  const runCallBlock = useCallback(
+    async (
+      block: NotebookBlock,
+      opts?: { mode?: "execute" | "simulate"; sender?: `0x${string}` },
+    ): Promise<boolean> => {
+      if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
         return true;
+      setResult(block.id, { status: "running" });
+      const result = await executeBlock(block, opts);
+      setResult(block.id, result);
+      return result.status === "success";
+    },
+    [executeBlock, setResult],
+  );
+
+  /**
+   * Run a recipe cell: every step of the referenced recipe executes in order
+   * against the notebook scope. Step-level semantics mirror Run all — sender
+   * groups scope their children, `if` groups and "run when" guards skip, the
+   * first error stops. The cell's result summarizes all steps.
+   */
+  const runRecipeBlock = useCallback(
+    async (
+      block: NotebookBlock,
+      opts?: { mode?: "execute" | "simulate"; sender?: `0x${string}` },
+    ): Promise<boolean> => {
+      const started = performance.now();
+      const fail = (error: string) => {
+        setResult(block.id, {
+          status: "error",
+          error,
+          durationMs: Math.round(performance.now() - started),
+          ranAt: Date.now(),
+        });
+        return false;
+      };
+
+      const recipeId = (block.config as RecipeBlockConfig).recipeId;
+      if (!recipeId) return fail("Select a recipe for this block");
+      const recipe = recipes.find((r) => r.id === recipeId);
+      if (!recipe) return fail("Recipe not found — it may have been deleted");
+
+      setResult(block.id, { status: "running" });
+
+      // The recipe cell's own sender group applies to steps that don't sit in
+      // a sender group of their own inside the recipe.
+      let outerSender: { address: `0x${string}`; simulateOnly: boolean } | null;
+      try {
+        outerSender = senderScopeFor(block);
+      } catch (e) {
+        return fail(shortError(e));
+      }
+
+      const steps = executionOrder(recipe.blocks);
+      const rows: Record<string, unknown> = {};
+      const skip = new Set<string>();
+      let ran = 0;
+      let skipped = 0;
+      let error: string | null = null;
+
+      for (const [index, step] of steps.entries()) {
+        const label = `${index + 1}. ${blockLabel(step, contracts)}`;
+        if (skip.has(step.id)) {
+          rows[label] = "skipped — condition was false";
+          skipped++;
+          continue;
+        }
+        if (step.type === "variable") {
+          const { name, value } = step.config as VariableConfig;
+          if (name) {
+            setScopeVariable(name, value);
+            rows[label] = value;
+          }
+          continue;
+        }
+        if (step.type === "markdown" || step.type === "sender") continue;
+        if (step.type === "if") {
+          try {
+            const verdict = evaluateCondition(
+              (step.config as IfConfig).condition ?? "",
+              useNotebookStore.getState().scope,
+            );
+            rows[label] = verdict.resolved;
+            if (!verdict.result) {
+              for (const child of recipe.blocks.filter((b) => b.parentId === step.id)) {
+                skip.add(child.id);
+              }
+            }
+          } catch (e) {
+            error = shortError(e);
+            rows[label] = `error: ${error}`;
+            break;
+          }
+          continue;
+        }
+        if (step.type !== "read" && step.type !== "write" && step.type !== "rpc") {
+          continue;
+        }
+        if (step.runWhen?.trim()) {
+          try {
+            const verdict = evaluateCondition(
+              step.runWhen,
+              useNotebookStore.getState().scope,
+            );
+            if (!verdict.result) {
+              rows[label] = `skipped — run when: ${verdict.resolved}`;
+              skipped++;
+              continue;
+            }
+          } catch (e) {
+            error = `run when: ${shortError(e)}`;
+            rows[label] = `error: ${error}`;
+            break;
+          }
+        }
+        const result = await executeBlock(step, opts, {
+          list: recipe.blocks,
+          outerSender,
+        });
+        if (result.status === "error") {
+          error = result.error ?? "step failed";
+          rows[label] = `error: ${error}`;
+          break;
+        }
+        // Writes return the whole receipt; keep the step row compact.
+        rows[label] = result.txHash ? `tx ${result.txHash}` : result.value;
+        ran++;
+      }
+
+      const durationMs = Math.round(performance.now() - started);
+      if (error) {
+        setResult(block.id, {
+          status: "error",
+          error,
+          kind: `Recipe "${recipe.name}"`,
+          details: rows,
+          durationMs,
+          ranAt: Date.now(),
+        });
+        return false;
+      }
+      setResult(block.id, {
+        status: "success",
+        value: `${ran} ${ran === 1 ? "step" : "steps"} ran${skipped ? `, ${skipped} skipped` : ""}`,
+        kind: `Recipe "${recipe.name}"`,
+        details: rows,
+        durationMs,
+        ranAt: Date.now(),
+      });
+      return true;
+    },
+    [recipes, contracts, executeBlock, senderScopeFor, setResult, setScopeVariable],
+  );
+
+  /**
+   * Evaluate a condition group against the current scope, recording the
+   * outcome as the block's result. Returns the verdict, or null on error
+   * (bad syntax / unresolved variable) — errors stop a run like any block.
+   */
+  const evaluateIfBlock = useCallback(
+    (block: NotebookBlock): boolean | null => {
+      const condition = (block.config as IfConfig).condition ?? "";
+      const started = performance.now();
+      try {
+        const { result, resolved } = evaluateCondition(
+          condition,
+          useNotebookStore.getState().scope,
+        );
+        setResult(block.id, {
+          status: "success",
+          value: result,
+          kind: "Condition check",
+          details: { Condition: condition, Evaluation: resolved },
+          durationMs: Math.round(performance.now() - started),
+          ranAt: Date.now(),
+        });
+        return result;
       } catch (e) {
         setResult(block.id, {
           status: "error",
@@ -403,10 +694,100 @@ export function NotebookEditor({
           durationMs: Math.round(performance.now() - started),
           ranAt: Date.now(),
         });
-        return false;
+        return null;
       }
     },
-    [publicClient, contracts, wagmiConfig, account, setResult, setScopeVariable, senderScopeFor],
+    [setResult],
+  );
+
+  /**
+   * Per-block "run when" guard, checked in batch runs (Run all / condition
+   * groups). Returns false when the block was skipped, null on error;
+   * direct manual runs bypass it (explicit user intent).
+   */
+  const checkRunWhen = useCallback(
+    (block: NotebookBlock): boolean | null => {
+      const condition = block.runWhen?.trim();
+      if (!condition) return true;
+      try {
+        const { result, resolved } = evaluateCondition(
+          condition,
+          useNotebookStore.getState().scope,
+        );
+        if (!result) {
+          setResult(block.id, {
+            status: "skipped",
+            kind: `Skipped — run when: ${resolved}`,
+            ranAt: Date.now(),
+          });
+        }
+        return result;
+      } catch (e) {
+        setResult(block.id, {
+          status: "error",
+          error: `run when: ${shortError(e)}`,
+          ranAt: Date.now(),
+        });
+        return null;
+      }
+    },
+    [setResult],
+  );
+
+  /** Mark a false condition's runnable children as skipped (not an error). */
+  const markChildrenSkipped = useCallback(
+    (parentId: string) => {
+      const children = useNotebookStore
+        .getState()
+        .blocks.filter(
+          (b) =>
+            b.parentId === parentId &&
+            (b.type === "read" ||
+              b.type === "write" ||
+              b.type === "rpc" ||
+              b.type === "recipe"),
+        );
+      for (const child of children) {
+        setResult(child.id, {
+          status: "skipped",
+          kind: "Skipped — condition was false",
+          ranAt: Date.now(),
+        });
+      }
+    },
+    [setResult],
+  );
+
+  /** Run one cell: condition groups evaluate and then run their children. */
+  const runOne = useCallback(
+    async (
+      block: NotebookBlock,
+      opts?: { mode?: "execute" | "simulate"; sender?: `0x${string}` },
+    ): Promise<boolean> => {
+      if (block.type === "recipe") return runRecipeBlock(block, opts);
+      if (block.type !== "if") return runCallBlock(block, opts);
+      const verdict = evaluateIfBlock(block);
+      if (verdict === null) return false;
+      if (!verdict) {
+        markChildrenSkipped(block.id);
+        return true;
+      }
+      const children = useNotebookStore
+        .getState()
+        .blocks.filter((b) => b.parentId === block.id);
+      for (const child of children) {
+        const gate = checkRunWhen(child);
+        if (gate === null) return false;
+        if (!gate) continue;
+        const ok =
+          child.type === "recipe"
+            ? await runRecipeBlock(child, opts)
+            : await runCallBlock(child, opts);
+        if (!ok) return false;
+      }
+      return true;
+    },
+    [runCallBlock, runRecipeBlock, evaluateIfBlock, markChildrenSkipped, checkRunWhen],
   );
 
   /** Simulate a single block as a chosen caller (writes are eth_call'd). */
@@ -430,28 +811,68 @@ export function NotebookEditor({
   );
 
   /** Runs every block in execution order. With `simulateAs`, writes are
-   *  eth_call'd (no wallet, nothing sent); sender groups override the caller. */
+   *  eth_call'd (no wallet, nothing sent); sender groups override the caller.
+   *  Condition groups gate their children: false skips them, errors stop. */
   const runAllWith = useCallback(
     async (simulateAs?: `0x${string}`) => {
       setRunning(true);
       // Jupyter-style: outputs restart, the exec counter and history continue.
       beginRunAll();
-      const current = executionOrder(useNotebookStore.getState().blocks).filter(
-        (b) => b.type === "read" || b.type === "write" || b.type === "rpc",
-      );
-      for (const block of current) {
-        const ok = await runOne(
-          block,
-          simulateAs ? { mode: "simulate", sender: simulateAs } : undefined,
-        );
+      const all = useNotebookStore.getState().blocks;
+      const opts = simulateAs
+        ? ({ mode: "simulate", sender: simulateAs } as const)
+        : undefined;
+      const skipped = new Set<string>();
+      let failed = false;
+      for (const block of executionOrder(all)) {
+        if (skipped.has(block.id)) continue;
+        if (block.type === "if") {
+          const verdict = evaluateIfBlock(block);
+          if (verdict === null) {
+            failed = true;
+            break;
+          }
+          if (!verdict) {
+            for (const child of all.filter((b) => b.parentId === block.id)) {
+              skipped.add(child.id);
+            }
+            markChildrenSkipped(block.id);
+          }
+          continue;
+        }
+        if (block.type === "recipe") {
+          const ok = await runRecipeBlock(block, opts);
+          if (!ok) {
+            failed = true;
+            break;
+          }
+          continue;
+        }
+        if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
+          continue;
+        const gate = checkRunWhen(block);
+        if (gate === null) {
+          failed = true;
+          break;
+        }
+        if (!gate) continue;
+        const ok = await runCallBlock(block, opts);
         if (!ok) {
-          toast.error("Run stopped: a block failed");
+          failed = true;
           break;
         }
       }
+      if (failed) toast.error("Run stopped: a block failed");
       setRunning(false);
     },
-    [beginRunAll, runOne],
+    [
+      beginRunAll,
+      runCallBlock,
+      runRecipeBlock,
+      evaluateIfBlock,
+      markChildrenSkipped,
+      checkRunWhen,
+    ],
   );
 
   const runAll = useCallback(() => runAllWith(), [runAllWith]);
@@ -524,7 +945,7 @@ export function NotebookEditor({
     const all = useNotebookStore.getState().blocks;
     const overBlock = all.find((b) => b.id === over.id);
     if (!overBlock) return;
-    if (overBlock.type === "sender") {
+    if (isGroupType(overBlock.type)) {
       // Drop onto a group header → become its first child
       const firstChild = all.find((b) => b.parentId === overBlock.id);
       moveBlockTo(String(active.id), overBlock.id, firstChild?.id ?? null);
@@ -539,6 +960,52 @@ export function NotebookEditor({
     scrollToBlock(id);
   }
 
+  /** Insert a linked recipe cell that reruns the recipe's steps. */
+  function handleInsertRecipeBlock(recipe: Recipe, index: number) {
+    const id = insertBlockAt("recipe", index);
+    if (!id) return;
+    updateBlockConfig(id, { recipeId: recipe.id });
+    setEditing(id, false);
+    setSelectedId(id);
+    scrollToBlock(id);
+  }
+
+  /** Paste an editable copy of a recipe's blocks at `index` (or into a group). */
+  function handlePasteRecipe(recipe: Recipe, index: number, parentId?: string) {
+    const ids = insertBlocksAt(recipe.blocks, index, parentId ?? null);
+    if (ids.length === 0) return;
+    setSelectedId(ids[0]);
+    scrollToBlock(ids[0]);
+    toast.success(
+      `Inserted "${recipe.name}" (${ids.length} ${ids.length === 1 ? "block" : "blocks"})`,
+    );
+  }
+
+  /** Swap a linked recipe cell for an editable copy of its blocks. */
+  function detachRecipeBlock(block: NotebookBlock) {
+    const recipeId = (block.config as RecipeBlockConfig).recipeId;
+    const recipe = recipes.find((r) => r.id === recipeId);
+    if (!recipe) return;
+    const all = useNotebookStore.getState().blocks;
+    const index = all.findIndex((b) => b.id === block.id);
+    const ids = insertBlocksAt(recipe.blocks, index, block.parentId ?? null);
+    removeBlock(block.id);
+    if (ids.length > 0) setSelectedId(ids[0]);
+    toast.success(
+      `Detached "${recipe.name}" into ${ids.length} editable ${ids.length === 1 ? "block" : "blocks"}`,
+    );
+  }
+
+  function openSaveRecipe(anchorId: string | null) {
+    setRecipeAnchorId(anchorId);
+    setRecipeSaveOpen(true);
+  }
+
+  /** Recipes containing a group can't be pasted inside another group. */
+  const groupSafeRecipes = recipes.filter((r) =>
+    r.blocks.every((b) => !isGroupType(b.type)),
+  );
+
   if (isLoading || !notebook) {
     return (
       <div className="grid gap-4">
@@ -550,12 +1017,14 @@ export function NotebookEditor({
   }
 
   const isRunnableType = (t: BlockType) => t === "read" || t === "write" || t === "rpc";
-  const runnableBlocks = blocks.filter((b) => isRunnableType(b.type));
+  const isExecutableType = (t: BlockType) =>
+    isRunnableType(t) || t === "if" || t === "recipe";
+  const runnableBlocks = blocks.filter((b) => isExecutableType(b.type));
   const runnableCount = runnableBlocks.length;
   const allExpanded =
     runnableCount > 0 && runnableBlocks.every((b) => editing[b.id]);
   const selectedBlock = blocks.find((b) => b.id === selectedId);
-  const canRunSelected = !!selectedBlock && isRunnableType(selectedBlock.type);
+  const canRunSelected = !!selectedBlock && isExecutableType(selectedBlock.type);
   const topLevelBlocks = blocks.filter((b) => !b.parentId);
 
   function renderBlockBody(block: NotebookBlock, isEditing: boolean) {
@@ -586,6 +1055,27 @@ export function NotebookEditor({
         />
       );
     }
+    if (block.type === "if") {
+      return (
+        <IfBlock
+          config={block.config as IfConfig}
+          editing={isEditing}
+          onChange={(c) => updateBlockConfig(block.id, c)}
+        />
+      );
+    }
+    if (block.type === "recipe") {
+      return (
+        <RecipeBlock
+          config={block.config as RecipeBlockConfig}
+          editing={isEditing}
+          recipes={recipes}
+          contracts={contracts}
+          onChange={(c) => updateBlockConfig(block.id, c)}
+          onDetach={readOnly ? undefined : () => detachRecipeBlock(block)}
+        />
+      );
+    }
     if (!isEditing) return <BlockSummary block={block} contracts={contracts} />;
     if (block.type === "rpc") {
       return (
@@ -606,8 +1096,8 @@ export function NotebookEditor({
   }
 
   function renderBlock(block: NotebookBlock): React.ReactNode {
-    const isSender = block.type === "sender";
-    const childBlocks = isSender
+    const isGroup = isGroupType(block.type);
+    const childBlocks = isGroup
       ? blocks.filter((b) => b.parentId === block.id)
       : [];
     return (
@@ -620,8 +1110,14 @@ export function NotebookEditor({
         onSelect={() => setSelectedId(block.id)}
         onRun={() => runOne(block)}
         onSimulate={isRunnableType(block.type) ? () => simulateOne(block) : undefined}
+        onSaveAsRecipe={
+          // Recipe cells can't be nested into recipes — no bookmark for them.
+          readOnly || block.type === "recipe"
+            ? undefined
+            : () => openSaveRecipe(block.id)
+        }
         groupChildren={
-          isSender ? (
+          isGroup ? (
             <div className="grid gap-2">
               {childBlocks.map((child) => renderBlock(child))}
               {!readOnly && (
@@ -631,6 +1127,11 @@ export function NotebookEditor({
                     setSelectedId(id);
                     scrollToBlock(id);
                   }}
+                  recipes={groupSafeRecipes}
+                  recipesLabel="Paste recipe blocks"
+                  onInsertRecipe={(recipe) =>
+                    handlePasteRecipe(recipe, blocks.length, block.id)
+                  }
                   trigger={
                     <Button
                       variant="ghost"
@@ -674,9 +1175,13 @@ export function NotebookEditor({
       description,
       chain: { id: project.chainId, rpcUrl: project.rpcUrl },
       blocks: useNotebookStore.getState().blocks.map((b) => ({
+        id: b.id,
         type: b.type,
         config: b.config,
         outputVariable: b.outputVariable,
+        // Group membership (sender/condition groups) — ids make it resolvable.
+        parentId: b.parentId ?? null,
+        runWhen: b.runWhen ?? null,
       })),
     };
     const blob = new Blob([JSON.stringify(manifest, null, 2)], {
@@ -795,6 +1300,9 @@ export function NotebookEditor({
         {!readOnly && (
           <AddBlockMenu
             onAdd={(type) => handleInsert(type, blocks.length)}
+            recipes={recipes}
+            onInsertRecipe={(recipe) => handleInsertRecipeBlock(recipe, blocks.length)}
+            onManageRecipes={() => router.push(`/p/${project.id}/recipes`)}
             trigger={
               <Button
                 variant="ghost"
@@ -862,6 +1370,18 @@ export function NotebookEditor({
         >
           <Download />
         </Button>
+        {!readOnly && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => openSaveRecipe(selectedId)}
+            disabled={blocks.length === 0}
+            aria-label="Save as recipe"
+            title="Save blocks as a reusable recipe for this project"
+          >
+            <BookmarkPlus />
+          </Button>
+        )}
 
         <span className="ml-auto flex items-center gap-2 pr-2 text-xs text-muted-foreground/60">
           <span>
@@ -935,6 +1455,14 @@ export function NotebookEditor({
         </DialogContent>
       </Dialog>
 
+      <SaveRecipeDialog
+        open={recipeSaveOpen}
+        onOpenChange={setRecipeSaveOpen}
+        projectId={project.id}
+        contracts={contracts}
+        initialSelectedId={recipeAnchorId}
+      />
+
       {showNotebookCode && (
         <div className="mb-6 rounded-xl border p-4">
           <p className="mb-2 text-sm font-medium">Full notebook source</p>
@@ -957,11 +1485,23 @@ export function NotebookEditor({
             {topLevelBlocks.map((block, index) => (
               <div key={block.id}>
                 {!readOnly && (
-                  <CellInserter onAdd={(type) => handleInsert(type, blocks.indexOf(block))} />
+                  <CellInserter
+                    onAdd={(type) => handleInsert(type, blocks.indexOf(block))}
+                    recipes={recipes}
+                    onInsertRecipe={(recipe) =>
+                      handleInsertRecipeBlock(recipe, blocks.indexOf(block))
+                    }
+                  />
                 )}
                 {renderBlock(block)}
                 {index === topLevelBlocks.length - 1 && !readOnly && (
-                  <CellInserter onAdd={(type) => handleInsert(type, blocks.length)} />
+                  <CellInserter
+                    onAdd={(type) => handleInsert(type, blocks.length)}
+                    recipes={recipes}
+                    onInsertRecipe={(recipe) =>
+                      handleInsertRecipeBlock(recipe, blocks.length)
+                    }
+                  />
                 )}
               </div>
             ))}

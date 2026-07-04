@@ -14,6 +14,7 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { runBlock } from "../src/lib/engine";
+import { evaluateCondition } from "../src/lib/condition";
 import { interpolate } from "../src/lib/variables";
 import { coerceArg } from "../src/lib/abi";
 import { generateBlockCode } from "../src/lib/codegen";
@@ -257,6 +258,67 @@ async function main() {
   assert(wagmiCode.includes("useWriteContract"), "wagmi write codegen uses hook");
   const readCode = generateBlockCode(readBlock, [contract], project, "wagmi");
   assert(readCode.includes("useReadContract"), "wagmi read codegen uses hook");
+
+  // 7. condition evaluator (drives `if` groups and "run when" guards)
+  scope.tokenName = nameOutcome.value;
+  const below = evaluateCondition("{{current}} < 100", scope);
+  assert(below.result === true, `condition 42 < 100 is true (${below.resolved})`);
+  assert(
+    evaluateCondition('{{tokenName}} == "SmokeCounter"', scope).result === true,
+    "condition compares strings",
+  );
+  assert(
+    evaluateCondition("!{{current}}", scope).result === false,
+    "condition negates truthiness",
+  );
+  try {
+    evaluateCondition("{{nope}} > 1", scope);
+    assert(false, "condition with unresolved variable should throw");
+  } catch (e) {
+    assert(
+      e instanceof Error && e.message.includes('"nope" is not set'),
+      "condition unresolved-variable error is friendly",
+    );
+  }
+
+  // 8. if-group scenario (allowance-style): write only while number < 100.
+  // Pass 1 runs the guarded write; pass 2 finds the condition false and skips.
+  // This composes the pieces exactly like the editor does for an `if` group.
+  const guardedWrite: NotebookBlock = {
+    id: "b8",
+    type: "write",
+    config: { contractId: "c1", functionName: "setNumber", args: ["100"] },
+    outputVariable: null,
+  };
+  const verdicts: boolean[] = [];
+  for (let pass = 1; pass <= 2; pass++) {
+    const currentOutcome = await runBlock(readBlock, {
+      publicClient,
+      contracts: [contract],
+      scope,
+    });
+    scope.current = currentOutcome.value;
+    const verdict = evaluateCondition("{{current}} < 100", scope);
+    verdicts.push(verdict.result);
+    if (verdict.result) {
+      await runBlock(guardedWrite, {
+        publicClient,
+        contracts: [contract],
+        scope,
+        mode: "execute",
+        impersonate: true,
+        sender: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      });
+    }
+  }
+  assert(verdicts[0] === true, "if-group pass 1: condition true, write ran");
+  assert(verdicts[1] === false, "if-group pass 2: condition false, write skipped");
+  const guarded = await publicClient.readContract({
+    address,
+    abi,
+    functionName: "number",
+  });
+  assert(guarded === 100n, "guarded write ran exactly once (number == 100)");
 
   console.log("\nAll smoke tests passed.");
 }

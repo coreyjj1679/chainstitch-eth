@@ -6,6 +6,7 @@ import type {
   NotebookBlock,
   NotebookMeta,
   Project,
+  Recipe,
   StateLayout,
   WorkspaceRole,
 } from "@/lib/types";
@@ -118,6 +119,26 @@ export const api = {
       }),
     clearRunState: (id: string) =>
       request(`/api/notebooks/${id}/run-state`, { method: "DELETE" }),
+  },
+  recipes: {
+    list: (projectId: string) => request<Recipe[]>(`/api/projects/${projectId}/recipes`),
+    create: (
+      projectId: string,
+      data: { name: string; description?: string; blocks: NotebookBlock[] },
+    ) =>
+      request<Recipe>(`/api/projects/${projectId}/recipes`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (
+      id: string,
+      data: Partial<{ name: string; description: string; blocks: NotebookBlock[] }>,
+    ) =>
+      request<Recipe>(`/api/recipes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    remove: (id: string) => request(`/api/recipes/${id}`, { method: "DELETE" }),
   },
   stateViews: {
     list: (projectId: string) =>

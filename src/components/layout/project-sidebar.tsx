@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import {
+  BookMarked,
   Braces,
   ChevronDown,
   ChevronRight,
@@ -12,6 +13,7 @@ import {
   Database,
   Eye,
   FileJson,
+  GitBranch,
   NotebookPen,
   Pencil,
   Plus,
@@ -22,7 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useContracts, useMe, useNotebooks } from "@/lib/hooks";
+import { useContracts, useMe, useNotebooks, useRecipes } from "@/lib/hooks";
 import { blockLabel, executionOrder } from "@/lib/block-label";
 import { displayValue } from "@/lib/serialize";
 import { useNotebookStore } from "@/stores/notebook-store";
@@ -39,6 +41,8 @@ const BLOCK_ICONS: Record<BlockType, typeof Eye> = {
   markdown: Braces,
   sender: UserRound,
   variable: Variable,
+  if: GitBranch,
+  recipe: BookMarked,
 };
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
@@ -55,6 +59,7 @@ function BlockToc({ projectId }: { projectId: string }) {
   const blocks = useNotebookStore((s) => s.blocks);
   const results = useNotebookStore((s) => s.results);
   const { data: contracts } = useContracts(projectId);
+  const { data: recipes } = useRecipes(projectId);
   const pathname = usePathname();
   const router = useRouter();
 
@@ -84,9 +89,13 @@ function BlockToc({ projectId }: { projectId: string }) {
         {executionOrder(blocks).map((block, index) => {
           const Icon = BLOCK_ICONS[block.type];
           const result = results[block.id];
-          // Only transaction-ish blocks carry a run-status dot.
+          // Only blocks that execute carry a run-status dot.
           const isRunnable =
-            block.type === "read" || block.type === "write" || block.type === "rpc";
+            block.type === "read" ||
+            block.type === "write" ||
+            block.type === "rpc" ||
+            block.type === "if" ||
+            block.type === "recipe";
           return (
             <button
               key={block.id}
@@ -95,7 +104,7 @@ function BlockToc({ projectId }: { projectId: string }) {
                 block.parentId && "pl-3",
               )}
               onClick={() => goToBlock(block.id)}
-              title={blockLabel(block, contracts ?? [])}
+              title={blockLabel(block, contracts ?? [], recipes)}
             >
               <span className="w-4 shrink-0 text-right font-mono text-[10px] text-muted-foreground/40">
                 {index + 1}
@@ -105,10 +114,12 @@ function BlockToc({ projectId }: { projectId: string }) {
                   "size-3 shrink-0",
                   block.type === "sender" && "text-teal-400",
                   block.type === "variable" && "text-amber-300",
+                  block.type === "if" && "text-fuchsia-400",
+                  block.type === "recipe" && "text-cyan-400",
                 )}
               />
               <span className="min-w-0 flex-1 truncate font-mono">
-                {blockLabel(block, contracts ?? [])}
+                {blockLabel(block, contracts ?? [], recipes)}
               </span>
               {isRunnable && (
                 <span
@@ -117,6 +128,7 @@ function BlockToc({ projectId }: { projectId: string }) {
                     result?.status === "success" && "bg-emerald-400",
                     result?.status === "error" && "bg-red-400",
                     result?.status === "running" && "animate-pulse bg-amber-400",
+                    result?.status === "skipped" && "bg-muted-foreground/40",
                     (!result || result.status === "idle") && "bg-muted-foreground/25",
                   )}
                   title={result?.status ?? "not run"}
@@ -186,8 +198,9 @@ function StructuredTable({ entries }: { entries: [string, unknown][] }) {
  * A variable row: click the name to copy `{{name}}` (for reuse in other blocks),
  * click the value to copy the value itself. Scalar values render inline (wrapped
  * up to two lines, full value on hover). Structured outputs (tuples, objects,
- * arrays) get a chevron that expands into a key/value table so fields like
- * `slot0` or `latestRoundData` are readable in the narrow sidebar.
+ * arrays) render as just a chevron + name — no inline preview — and expand into
+ * a key/value table on toggle, so fields like `slot0` or `latestRoundData` are
+ * readable in the narrow sidebar.
  */
 function VariableRow({
   name,
@@ -235,7 +248,7 @@ function VariableRow({
         >
           {name}
         </button>
-        {!(open && expandable) && (
+        { !expandable && (
           <button
             className={cn(
               "min-w-0 flex-1 break-all whitespace-pre-wrap text-left line-clamp-2",
@@ -448,6 +461,18 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
         >
           <Database className="size-3.5 shrink-0" />
           State
+        </Link>
+        <Link
+          href={`${base}/recipes`}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+            pathname === `${base}/recipes`
+              ? "bg-muted font-medium text-foreground"
+              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+          )}
+        >
+          <BookMarked className="size-3.5 shrink-0" />
+          Recipes
         </Link>
       </div>
 

@@ -4,12 +4,15 @@ import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+  BookMarked,
+  BookmarkPlus,
   Braces,
   Check,
   Code2,
   Copy,
   Eye,
   FlaskConical,
+  GitBranch,
   GripVertical,
   Pencil,
   Play,
@@ -24,6 +27,7 @@ import { CodePanel } from "@/components/notebook/code-panel";
 import { ResultPanel } from "@/components/notebook/result-panel";
 import { useNotebookStore } from "@/stores/notebook-store";
 import { generateBlockCode, type CodeFlavor } from "@/lib/codegen";
+import { isGroupType } from "@/lib/block-label";
 import { isValidVariableName } from "@/lib/variables";
 import type { ContractEntry, NotebookBlock, Project } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -68,12 +72,30 @@ const TYPE_META = {
     badge: "text-amber-300 border-amber-300/30 bg-amber-300/10",
     accent: "bg-amber-300",
   },
+  if: {
+    label: "Condition",
+    icon: GitBranch,
+    badge: "text-fuchsia-400 border-fuchsia-400/30 bg-fuchsia-400/10",
+    accent: "bg-fuchsia-400",
+  },
+  recipe: {
+    label: "Recipe",
+    icon: BookMarked,
+    badge: "text-cyan-400 border-cyan-400/30 bg-cyan-400/10",
+    accent: "bg-cyan-400",
+  },
 } as const;
 
 /** Jupyter-style `In [n]` gutter */
 function ExecGutter({ block }: { block: NotebookBlock }) {
   const result = useNotebookStore((s) => s.results[block.id]);
-  if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
+  if (
+    block.type !== "read" &&
+    block.type !== "write" &&
+    block.type !== "rpc" &&
+    block.type !== "if" &&
+    block.type !== "recipe"
+  )
     return <div className="w-11 shrink-0 pr-4" />;
 
   let label = "[ ]";
@@ -81,6 +103,9 @@ function ExecGutter({ block }: { block: NotebookBlock }) {
   if (result?.status === "running") {
     label = "[*]";
     className = "animate-pulse text-amber-400";
+  } else if (result?.status === "skipped") {
+    label = "[–]";
+    className = "text-muted-foreground/40";
   } else if (result?.execIndex !== undefined) {
     label = `[${result.execIndex}]`;
     className = result.status === "error" ? "text-destructive" : "text-primary";
@@ -106,6 +131,7 @@ export function BlockShell({
   onSelect,
   onRun,
   onSimulate,
+  onSaveAsRecipe,
   groupChildren,
   children,
 }: {
@@ -116,6 +142,8 @@ export function BlockShell({
   onSelect: () => void;
   onRun: () => void;
   onSimulate?: () => void;
+  /** Open the "Save as recipe" dialog with this block pre-checked. */
+  onSaveAsRecipe?: () => void;
   /** For sender blocks: the nested child cells */
   groupChildren?: React.ReactNode;
   children: (editing: boolean) => React.ReactNode;
@@ -129,6 +157,7 @@ export function BlockShell({
   const removeBlock = useNotebookStore((s) => s.removeBlock);
   const duplicateBlock = useNotebookStore((s) => s.duplicateBlock);
   const setOutputVariable = useNotebookStore((s) => s.setOutputVariable);
+  const setRunWhen = useNotebookStore((s) => s.setRunWhen);
   const readOnly = useNotebookStore((s) => s.readOnly);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -154,6 +183,9 @@ export function BlockShell({
   const Icon = meta.icon;
   const isRunnable =
     block.type === "read" || block.type === "write" || block.type === "rpc";
+  // Condition groups and recipe cells run too, but have no codegen or
+  // simulate affordances of their own.
+  const isExecutable = isRunnable || block.type === "if" || block.type === "recipe";
   const variableInvalid =
     !!block.outputVariable && !isValidVariableName(block.outputVariable);
 
@@ -173,9 +205,17 @@ export function BlockShell({
             ? selected
               ? "border-teal-400/40 bg-teal-400/5"
               : "border-teal-400/20 bg-teal-400/3 hover:border-teal-400/40"
-            : selected
-              ? "border-border/60 bg-muted/20"
-              : "border-transparent hover:border-border/30 hover:bg-muted/10",
+            : block.type === "if"
+              ? selected
+                ? "border-fuchsia-400/40 bg-fuchsia-400/5"
+                : "border-fuchsia-400/20 bg-fuchsia-400/3 hover:border-fuchsia-400/40"
+              : block.type === "recipe"
+                ? selected
+                  ? "border-cyan-400/40 bg-cyan-400/5"
+                  : "border-cyan-400/20 bg-cyan-400/3 hover:border-cyan-400/40"
+                : selected
+                  ? "border-border/60 bg-muted/20"
+                  : "border-transparent hover:border-border/30 hover:bg-muted/10",
         isDragging && "z-50 border-border bg-card opacity-80",
       )}
       onClick={onSelect}
@@ -210,6 +250,18 @@ export function BlockShell({
                     placeholder="variableName"
                     value={block.outputVariable ?? ""}
                     onChange={(e) => setOutputVariable(block.id, e.target.value || null)}
+                  />
+                </div>
+              )}
+              {isRunnable && (
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-muted-foreground">run when</span>
+                  <Input
+                    className="h-6 w-44 border-dashed px-1.5 font-mono text-xs"
+                    placeholder="always"
+                    title='Skip this block in batch runs unless the condition holds, e.g. "{{allowance}} < {{amount}}"'
+                    value={block.runWhen ?? ""}
+                    onChange={(e) => setRunWhen(block.id, e.target.value || null)}
                   />
                 </div>
               )}
@@ -252,7 +304,7 @@ export function BlockShell({
             Variable names must be valid identifiers (letters, digits, _, $).
           </p>
         )}
-        {isRunnable && result && (
+        {isExecutable && result && (
           <ResultPanel blockId={block.id} result={result} project={project} />
         )}
         {isRunnable && showCode && (
@@ -263,7 +315,14 @@ export function BlockShell({
           />
         )}
         {groupChildren && (
-          <div className="mt-3 border-l-2 border-teal-400/30 pl-3">{groupChildren}</div>
+          <div
+            className={cn(
+              "mt-3 border-l-2 pl-3",
+              block.type === "if" ? "border-fuchsia-400/30" : "border-teal-400/30",
+            )}
+          >
+            {groupChildren}
+          </div>
         )}
       </div>
 
@@ -275,14 +334,20 @@ export function BlockShell({
         )}
         onClick={(e) => e.stopPropagation()}
       >
-        {isRunnable && (
+        {isExecutable && (
           <Button
             variant="ghost"
             size="icon-xs"
             onClick={onRun}
             disabled={result?.status === "running"}
             aria-label="Run block"
-            title="Run block (Shift+Enter)"
+            title={
+              block.type === "if"
+                ? "Evaluate the condition and run the blocks inside"
+                : block.type === "recipe"
+                  ? "Run every step of this recipe in order"
+                  : "Run block (Shift+Enter)"
+            }
           >
             <Play className="text-emerald-500" />
           </Button>
@@ -341,10 +406,25 @@ export function BlockShell({
               size="icon-xs"
               onClick={() => duplicateBlock(block.id)}
               aria-label="Duplicate block"
-              title={block.type === "sender" ? "Duplicate group and its blocks" : "Duplicate block"}
+              title={
+                isGroupType(block.type)
+                  ? "Duplicate group and its blocks"
+                  : "Duplicate block"
+              }
             >
               <Copy className="text-muted-foreground" />
             </Button>
+            {onSaveAsRecipe && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={onSaveAsRecipe}
+                aria-label="Save as recipe"
+                title="Save as a reusable recipe (opens the picker with this block checked)"
+              >
+                <BookmarkPlus className="text-muted-foreground" />
+              </Button>
+            )}
             <button
               className="flex size-6 cursor-grab items-center justify-center rounded-md text-muted-foreground/60 hover:bg-muted hover:text-foreground active:cursor-grabbing"
               {...attributes}

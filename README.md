@@ -103,6 +103,26 @@ Drag cards to rearrange, drag an edge to resize, drop in section titles.
   <br><sub>Live mainnet state — pool liquidity/fee/tokens and the Chainlink ETH/USD price, refreshed with one click.</sub>
 </p>
 
+### Recipes — save a flow once, rerun it as one cell
+
+Select blocks in any notebook and save them as a named **recipe** — the
+classic one is *check the allowance, approve only if it's too low*. Recipes
+drop into any notebook from the add-block menu, either as a linked **Recipe
+cell** that reruns every step in one click, or pasted as editable blocks
+(a linked cell can be “detached” into blocks later). Steps keep full notebook
+semantics: they read and write `{{variables}}`, `if` groups and “run when”
+guards skip what shouldn't run, and sender groups pick the caller.
+
+<p align="center">
+  <img src="screenshots/recipe-cell.png" alt="A recipe cell inside a sender group after two runs — the Steps tab shows the allowance read, the resolved if-condition and the skipped approve">
+  <br><sub>An “Approve if needed” recipe cell on its second run: the allowance is already sufficient, so the <code>if</code> step resolves to <code>false</code> and the approve is skipped — <code>2 steps ran, 1 skipped</code>.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshots/recipes-tab.png" alt="The Recipes tab listing saved recipes with their step lists">
+  <br><sub>The Recipes tab is the project's library of saved flows — rename, describe, delete; every notebook's add-block menu offers them.</sub>
+</p>
+
 ### And more
 
 - **Write blocks simulate first** — revert reasons surface *before* the wallet
@@ -111,6 +131,9 @@ Drag cards to rearrange, drag an edge to resize, drop in section titles.
   `eth_call`; on anvil forks, impersonated writes need no keys at all.
 - **Text** blocks (markdown), **variable** blocks (named constants), and
   **sender groups** (run child blocks as a chosen caller).
+- **Condition blocks** — an `if` group runs its blocks only when a condition
+  on prior outputs holds (`{{allowance}} < {{amount}}` → approve only when
+  needed); a per-block "run when" guard does the same for single cells.
 - **Team workspaces** *(optional)* — Sign-In with Ethereum, invite-only access
   by wallet address, viewer / editor / owner roles.
 

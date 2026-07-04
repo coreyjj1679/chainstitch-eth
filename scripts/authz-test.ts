@@ -46,6 +46,7 @@ async function main() {
     projects: await import("../src/server/dal/projects"),
     contracts: await import("../src/server/dal/contracts"),
     notebooks: await import("../src/server/dal/notebooks"),
+    recipes: await import("../src/server/dal/recipes"),
     stateViews: await import("../src/server/dal/state-views"),
     workspace: await import("../src/server/dal/workspace"),
   };
@@ -100,6 +101,15 @@ async function main() {
     createdAt: now,
     updatedAt: now,
   });
+  await db.insert(schema.recipes).values({
+    id: "other-recipe",
+    projectId: "other-project",
+    name: "Foreign",
+    description: null,
+    blocks: "[]",
+    createdAt: now,
+    updatedAt: now,
+  });
 
   const owner: Ctx = { userId: "alice", workspaceId: DEFAULT_WORKSPACE_ID, role: "owner" };
   const editor: Ctx = { userId: "bob", workspaceId: DEFAULT_WORKSPACE_ID, role: "editor" };
@@ -123,6 +133,11 @@ async function main() {
     { type: "markdown", config: { text: "hi" } },
   ]);
   ok(true, "owner creates contract/notebook/blocks");
+  const recipe = await dal.recipes.createRecipe(owner, project.id, {
+    name: "Approve flow",
+    blocks: [{ id: "rb1", type: "read", config: { contractId: "c", functionName: "f", args: [] } }],
+  });
+  ok(!!recipe.id, "owner creates a recipe");
 
   // --- Viewer: read yes, mutate no -------------------------------------------
   ok((await dal.projects.listProjects(viewer)).length === 1, "viewer lists projects");
@@ -144,6 +159,25 @@ async function main() {
     dal.notebooks.saveBlocks(viewer, notebook.id, []),
     403,
     "viewer cannot save blocks",
+  );
+  ok((await dal.recipes.listRecipes(viewer, project.id)).length === 1, "viewer lists recipes");
+  await expectStatus(
+    dal.recipes.createRecipe(viewer, project.id, {
+      name: "x",
+      blocks: [{ type: "markdown", config: { text: "hi" } }],
+    }),
+    403,
+    "viewer cannot create recipe",
+  );
+  await expectStatus(
+    dal.recipes.updateRecipe(viewer, recipe.id, { name: "x" }),
+    403,
+    "viewer cannot update recipe",
+  );
+  await expectStatus(
+    dal.recipes.deleteRecipe(viewer, recipe.id),
+    403,
+    "viewer cannot delete recipe",
   );
   await expectStatus(
     dal.notebooks.saveRunState(viewer, notebook.id, "{}"),
@@ -187,6 +221,11 @@ async function main() {
   ok(
     (await dal.notebooks.getRunState(editor, notebook.id)) === null,
     "editor clears run state",
+  );
+  ok(
+    (await dal.recipes.updateRecipe(editor, recipe.id, { name: "Approve v2" })).name ===
+      "Approve v2",
+    "editor updates a recipe",
   );
   await expectStatus(
     dal.projects.updateProject(editor, project.id, { rpcUrl: "http://x" }),
@@ -252,6 +291,21 @@ async function main() {
     dal.notebooks.saveRunState(owner, "other-notebook", "{}"),
     404,
     "foreign notebook run state cannot be written",
+  );
+  await expectStatus(
+    dal.recipes.listRecipes(owner, "other-project"),
+    404,
+    "foreign project recipes cannot be listed",
+  );
+  await expectStatus(
+    dal.recipes.updateRecipe(owner, "other-recipe", { name: "pwn" }),
+    404,
+    "foreign recipe cannot be updated",
+  );
+  await expectStatus(
+    dal.recipes.deleteRecipe(owner, "other-recipe"),
+    404,
+    "foreign recipe cannot be deleted",
   );
   await expectStatus(
     dal.contracts.listContracts(owner, "other-project"),

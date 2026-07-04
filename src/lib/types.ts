@@ -6,7 +6,9 @@ export type BlockType =
   | "rpc"
   | "markdown"
   | "sender"
-  | "variable";
+  | "variable"
+  | "if"
+  | "recipe";
 
 export interface CallConfig {
   contractId: string;
@@ -41,20 +43,43 @@ export interface VariableConfig {
   value: string;
 }
 
+/**
+ * Group cell: child blocks run only when the condition holds, e.g.
+ * `{{allowance}} < {{amount}}` (see lib/condition.ts for the grammar).
+ */
+export interface IfConfig {
+  condition: string;
+}
+
+/**
+ * A cell that references a saved recipe and reruns all of its steps in
+ * sequence — the linked counterpart to pasting a recipe as editable blocks.
+ */
+export interface RecipeBlockConfig {
+  recipeId: string;
+}
+
 export type BlockConfig =
   | CallConfig
   | RpcConfig
   | MarkdownConfig
   | SenderConfig
-  | VariableConfig;
+  | VariableConfig
+  | IfConfig
+  | RecipeBlockConfig;
 
 export interface NotebookBlock {
   id: string;
   type: BlockType;
   config: BlockConfig;
   outputVariable: string | null;
-  /** id of the sender group this block lives in (one level deep), or null */
+  /** id of the group this block lives in (one level deep), or null */
   parentId?: string | null;
+  /**
+   * Optional guard for read/write/rpc blocks: during batch runs the block is
+   * skipped unless this condition holds (same grammar as condition groups).
+   */
+  runWhen?: string | null;
 }
 
 export interface Project {
@@ -81,6 +106,17 @@ export interface NotebookMeta {
   projectId: string;
   title: string;
   description: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A named, reusable group of block definitions, scoped to a project. */
+export interface Recipe {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string | null;
+  blocks: NotebookBlock[];
   createdAt: number;
   updatedAt: number;
 }
@@ -137,7 +173,7 @@ export interface InviteInfo {
   createdAt: number;
 }
 
-export type BlockRunStatus = "idle" | "running" | "success" | "error";
+export type BlockRunStatus = "idle" | "running" | "success" | "error" | "skipped";
 
 export interface BlockResult {
   status: BlockRunStatus;

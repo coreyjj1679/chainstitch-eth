@@ -135,7 +135,17 @@ CREATE TABLE IF NOT EXISTS blocks (
   type TEXT NOT NULL,
   config TEXT NOT NULL,
   output_variable TEXT,
-  parent_id TEXT
+  parent_id TEXT,
+  run_when TEXT
+);
+CREATE TABLE IF NOT EXISTS recipes (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  blocks TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS notebook_run_state (
   notebook_id TEXT PRIMARY KEY REFERENCES notebooks(id) ON DELETE CASCADE,
@@ -168,6 +178,7 @@ function addColumn(sql: string) {
 }
 addColumn("ALTER TABLE projects ADD COLUMN description TEXT");
 addColumn("ALTER TABLE blocks ADD COLUMN parent_id TEXT");
+addColumn("ALTER TABLE blocks ADD COLUMN run_when TEXT");
 addColumn(
   `ALTER TABLE projects ADD COLUMN workspace_id TEXT NOT NULL DEFAULT '${DEFAULT_WORKSPACE_ID}'`,
 );
