@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { getSessionCookie } from "better-auth/cookies";
 import { parseShareTokens } from "@/lib/share-cookie";
+import { GITHUB_URL } from "@/lib/site";
 import { LandingPage } from "@/components/landing/landing-page";
 import { ProjectsHome } from "@/components/home/projects-home";
 
@@ -26,7 +27,7 @@ export default async function RootPage() {
   return (
     <LandingPage
       demoUrl={process.env.DEMO_SHARE_URL || undefined}
-      githubUrl={process.env.GITHUB_URL || undefined}
+      githubUrl={process.env.GITHUB_URL || GITHUB_URL}
     />
   );
 }

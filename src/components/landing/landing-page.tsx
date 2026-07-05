@@ -5,10 +5,12 @@ import {
   BookMarked,
   Code2,
   FlaskConical,
+  Laptop,
   Play,
   Sparkles,
   Users,
 } from "lucide-react";
+import { GithubIcon } from "@/components/github-link";
 import { Logo } from "@/components/logo";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -71,6 +73,15 @@ export function LandingPage({
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-3">
           <Logo size={24} />
           <div className="flex items-center gap-2">
+            <Link
+              href="/docs"
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "text-muted-foreground",
+              )}
+            >
+              Docs
+            </Link>
             {githubUrl && (
               <a
                 href={githubUrl}
@@ -78,8 +89,8 @@ export function LandingPage({
                 rel="noreferrer"
                 className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
               >
+                <GithubIcon className="size-4" data-icon="inline-start" />
                 GitHub
-                <ArrowUpRight data-icon="inline-end" />
               </a>
             )}
             <Link
@@ -191,6 +202,72 @@ export function LandingPage({
           </div>
         </section>
 
+        {/* Modes */}
+        <section className="border-t">
+          <div className="mx-auto w-full max-w-6xl px-6 py-14">
+            <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">
+              Two modes, one env var apart
+            </h2>
+            <p className="mx-auto mb-8 max-w-xl text-center text-sm text-muted-foreground">
+              The same codebase and the same database serve a private
+              single-user tool and an invite-only team instance.
+            </p>
+            <div className="mx-auto grid max-w-4xl gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border bg-card/40 p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg border bg-emerald-400/10 text-emerald-400">
+                    <Laptop className="size-4" />
+                  </div>
+                  <p className="text-sm font-medium">
+                    Local <span className="text-muted-foreground/60">(default)</span>
+                  </p>
+                </div>
+                <ul className="grid gap-1.5 text-xs leading-relaxed text-muted-foreground">
+                  <li>No login, no accounts — clone it and run it</li>
+                  <li>
+                    Everything in one SQLite file on your machine; no telemetry,
+                    nothing phones home
+                  </li>
+                  <li>
+                    <code className="rounded bg-muted px-1 font-mono">
+                      npm install && npm run dev
+                    </code>{" "}
+                    is the whole setup
+                  </li>
+                </ul>
+              </div>
+              <div className="rounded-xl border bg-card/40 p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg border bg-sky-400/10 text-sky-400">
+                    <Users className="size-4" />
+                  </div>
+                  <p className="text-sm font-medium">
+                    Team <span className="text-muted-foreground/60">(APP_MODE=team)</span>
+                  </p>
+                </div>
+                <ul className="grid gap-1.5 text-xs leading-relaxed text-muted-foreground">
+                  <li>Sign-In with Ethereum — identity is the wallet, no email server</li>
+                  <li>
+                    Invite-only: wallets get viewer / editor / owner roles,
+                    workspace-wide or per project
+                  </li>
+                  <li>
+                    Google-Docs-style Share on every project, plus
+                    “anyone with the link” URLs
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <p className="mt-6 text-center text-xs text-muted-foreground/70">
+              Switching modes keeps all your data —{" "}
+              <Link href="/docs#team-mode" className="underline hover:text-foreground">
+                how to self-host
+              </Link>
+              .
+            </p>
+          </div>
+        </section>
+
         {/* Codegen */}
         <section className="border-t">
           <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-6 py-14 lg:grid-cols-2">
@@ -228,8 +305,58 @@ export function LandingPage({
           </div>
         </section>
 
+        {/* Roadmap */}
+        <section className="border-t bg-card/20">
+          <div className="mx-auto w-full max-w-6xl px-6 py-14">
+            <h2 className="mb-2 text-center text-2xl font-semibold tracking-tight">
+              Coming soon
+            </h2>
+            <p className="mx-auto mb-8 max-w-xl text-center text-sm text-muted-foreground">
+              Chainstitch is young and moving fast — this is what&apos;s on the
+              bench next.
+            </p>
+            <div className="mx-auto grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {[
+                {
+                  title: "Fork sandbox controls",
+                  body: "Snapshot / revert / time-travel buttons on anvil forks, and app-managed fork processes.",
+                },
+                {
+                  title: "Decoded revert traces",
+                  body: "Failed simulations render the decoded call tree with your address-book names.",
+                },
+                {
+                  title: "Decoded events & event blocks",
+                  body: "Receipt logs decoded against your ABIs; query past events as a block, output as a variable.",
+                },
+                {
+                  title: "Notebooks as files + CI runner",
+                  body: "Deterministic JSON export that lives in your repo, plus a headless CLI that fails the build when a flow breaks.",
+                },
+                {
+                  title: "Deploy & assertion blocks",
+                  body: "Deploy from Foundry artifacts as a cell; expect blocks turn notebooks into integration tests.",
+                },
+                {
+                  title: "Playbooks & Safe export",
+                  body: "Export a flow as a JSON call manifest or a Safe Transaction Builder batch — an executable multisig runbook.",
+                },
+              ].map((item) => (
+                <div key={item.title} className="rounded-xl border border-dashed bg-card/30 p-4">
+                  <p className="mb-1 text-sm font-medium text-foreground/90">
+                    {item.title}
+                  </p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {item.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Self-host */}
-        <section id="self-host" className="border-t bg-card/20">
+        <section id="self-host" className="border-t">
           <div className="mx-auto w-full max-w-3xl px-6 py-14 text-center">
             <h2 className="mb-3 text-2xl font-semibold tracking-tight">
               Own everything
@@ -244,17 +371,20 @@ export function LandingPage({
               {"npm install && npm run dev   # that's it — SQLite bootstraps itself"}
             </pre>
             <p className="text-xs text-muted-foreground/70">
-              Docker and team-mode deployment guides in the README
+              Step-by-step Docker and team-mode guides live in{" "}
+              <Link href="/docs#team-mode" className="underline hover:text-foreground">
+                the docs
+              </Link>
               {githubUrl ? (
                 <>
-                  {" — "}
+                  {" "}and the{" "}
                   <a
                     href={githubUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="underline hover:text-foreground"
                   >
-                    view on GitHub
+                    README on GitHub
                   </a>
                 </>
               ) : null}
@@ -267,7 +397,23 @@ export function LandingPage({
       <footer className="border-t">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2 px-6 py-4 text-xs text-muted-foreground/60">
           <span>MIT licensed · smart contract collaboration tools</span>
-          <span className="font-mono">privacy by construction</span>
+          <span className="flex items-center gap-4">
+            <Link href="/docs" className="hover:text-foreground">
+              Docs
+            </Link>
+            {githubUrl && (
+              <a
+                href={githubUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 hover:text-foreground"
+              >
+                GitHub
+                <ArrowUpRight className="size-3" />
+              </a>
+            )}
+            <span className="font-mono">privacy by construction</span>
+          </span>
         </div>
       </footer>
     </div>
