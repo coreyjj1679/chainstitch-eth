@@ -17,6 +17,7 @@ import {
   Pencil,
   Play,
   Radio,
+  ScrollText,
   Trash2,
   UserRound,
   Variable,
@@ -27,7 +28,7 @@ import { CodePanel } from "@/components/notebook/code-panel";
 import { ResultPanel } from "@/components/notebook/result-panel";
 import { useNotebookStore } from "@/stores/notebook-store";
 import { generateBlockCode, type CodeFlavor } from "@/lib/codegen";
-import { isGroupType } from "@/lib/block-label";
+import { isExecutableType, isGroupType, isRunnableType } from "@/lib/block-label";
 import { isValidVariableName } from "@/lib/variables";
 import type { ContractEntry, NotebookBlock, Project } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,12 @@ const TYPE_META = {
     icon: Radio,
     badge: "text-violet-400 border-violet-400/30 bg-violet-400/10",
     accent: "bg-violet-400",
+  },
+  event: {
+    label: "Events",
+    icon: ScrollText,
+    badge: "text-emerald-400 border-emerald-400/30 bg-emerald-400/10",
+    accent: "bg-emerald-400",
   },
   markdown: {
     label: "Text",
@@ -89,14 +96,7 @@ const TYPE_META = {
 /** Jupyter-style `In [n]` gutter */
 function ExecGutter({ block }: { block: NotebookBlock }) {
   const result = useNotebookStore((s) => s.results[block.id]);
-  if (
-    block.type !== "read" &&
-    block.type !== "write" &&
-    block.type !== "rpc" &&
-    block.type !== "if" &&
-    block.type !== "recipe"
-  )
-    return <div className="w-11 shrink-0 pr-4" />;
+  if (!isExecutableType(block.type)) return <div className="w-11 shrink-0 pr-4" />;
 
   let label = "[ ]";
   let className = "text-muted-foreground/40";
@@ -181,11 +181,10 @@ export function BlockShell({
 
   const meta = TYPE_META[block.type];
   const Icon = meta.icon;
-  const isRunnable =
-    block.type === "read" || block.type === "write" || block.type === "rpc";
+  const isRunnable = isRunnableType(block.type);
   // Condition groups and recipe cells run too, but have no codegen or
   // simulate affordances of their own.
-  const isExecutable = isRunnable || block.type === "if" || block.type === "recipe";
+  const isExecutable = isExecutableType(block.type);
   const variableInvalid =
     !!block.outputVariable && !isValidVariableName(block.outputVariable);
 

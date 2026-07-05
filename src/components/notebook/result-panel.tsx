@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { displayValue } from "@/lib/serialize";
 import { useNotebookStore } from "@/stores/notebook-store";
-import type { BlockResult, Project } from "@/lib/types";
+import type { BlockResult, DecodedEventEntry, Project } from "@/lib/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -78,6 +78,49 @@ export function DetailsGrid({ record }: { record: Record<string, unknown> }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/**
+ * Receipt logs decoded against the address book: one card per event with
+ * its emitter and an args grid — the "did the right event fire?" check.
+ */
+function EventsList({ events }: { events: DecodedEventEntry[] }) {
+  return (
+    <div className="grid max-h-72 gap-1.5 overflow-y-auto">
+      {events.map((entry, i) => (
+        <div
+          key={`${entry.logIndex ?? i}-${entry.event}`}
+          className="rounded-md border border-border/40 px-2 py-1.5"
+        >
+          <div className="flex items-baseline gap-2">
+            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">
+              [{entry.logIndex ?? i}]
+            </span>
+            <span
+              className={cn(
+                "min-w-0 truncate font-mono text-[11px]",
+                entry.args ? "font-medium text-emerald-400" : "text-muted-foreground",
+              )}
+              title={entry.event}
+            >
+              {entry.event}
+            </span>
+            <span
+              className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/60"
+              title={entry.address}
+            >
+              {entry.contract}
+            </span>
+          </div>
+          {entry.args && Object.keys(entry.args).length > 0 && (
+            <div className="mt-1 border-t border-border/40 pt-1">
+              <DetailsGrid record={entry.args} />
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -181,6 +224,9 @@ function DetailTabs({
           },
         ]
       : []),
+    ...(result.events && result.events.length > 0
+      ? [{ value: "events", label: `Events (${result.events.length})` }]
+      : []),
     ...(result.txDetails ? [{ value: "tx", label: "Transaction" }] : []),
     { value: "run", label: "Run" },
     { value: "history", label: `History (${history.length})` },
@@ -204,6 +250,11 @@ function DetailTabs({
       {result.details && (
         <TabsContent value="call">
           <DetailsGrid record={result.details} />
+        </TabsContent>
+      )}
+      {result.events && result.events.length > 0 && (
+        <TabsContent value="events">
+          <EventsList events={result.events} />
         </TabsContent>
       )}
       {result.txDetails && (

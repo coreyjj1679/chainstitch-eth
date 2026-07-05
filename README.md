@@ -47,7 +47,8 @@ mainnet, chained with `{{usdc}}` / `{{weth}}` / `{{pool}}`.
 Ordered blocks, drag to reorder, autosaved, run per-block or top-to-bottom.
 Name a block's output and reference it downstream — `{{pool}}`,
 `{{receipt.blockNumber}}`, `{{round.answer}}` — with dot/bracket paths into
-prior results. Read blocks call view/pure functions; RPC blocks cover
+prior results. Read blocks call view/pure functions; Events blocks query a
+contract event over a block range and decode every match; RPC blocks cover
 `getBlock`, `getBalance`, `getLogs`, … plus a raw custom-method escape hatch
 for anvil cheatcodes.
 
@@ -187,6 +188,12 @@ after the notebook changes.
   self-hosting, right inside the app (public on team-mode instances).
 - **Write blocks simulate first** — revert reasons surface *before* the wallet
   prompt — then send and await the receipt.
+- **Decoded events & receipts** — every write receipt auto-decodes its logs
+  against the address book into an **Events** tab, so "did the right event
+  fire?" is answered at a glance. The **Events block** does the reverse
+  lookup: query a contract event over a block range (with indexed-topic
+  filters and `{{variable}}` support) and use the decoded matches downstream,
+  e.g. `{{logs[0].args.to}}`.
 - **Simulate as anyone** — dry-run entire notebooks as any address via
   `eth_call`; on anvil forks, impersonated writes need no keys at all.
 - **Text** blocks (markdown), **variable** blocks (named constants), and

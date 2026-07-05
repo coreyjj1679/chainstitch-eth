@@ -19,6 +19,7 @@ import {
   Pencil,
   Plus,
   Radio,
+  ScrollText,
   SquarePlay,
   Trash2,
   UserRound,
@@ -34,7 +35,7 @@ import {
   useRuns,
 } from "@/lib/hooks";
 import { duplicateNotebook } from "@/lib/duplicate-notebook";
-import { blockLabel, executionOrder } from "@/lib/block-label";
+import { blockLabel, executionOrder, isExecutableType } from "@/lib/block-label";
 import { displayValue } from "@/lib/serialize";
 import { confirmLosingRecipeEdits, useNotebookStore } from "@/stores/notebook-store";
 import { CreateNotebookDialog } from "@/components/layout/create-notebook-dialog";
@@ -47,6 +48,7 @@ const BLOCK_ICONS: Record<BlockType, typeof Eye> = {
   read: Eye,
   write: Pencil,
   rpc: Radio,
+  event: ScrollText,
   markdown: Braces,
   sender: UserRound,
   variable: Variable,
@@ -168,12 +170,7 @@ function BlockToc({ projectId }: { projectId: string }) {
           const Icon = BLOCK_ICONS[block.type];
           const result = results[block.id];
           // Only blocks that execute carry a run-status dot.
-          const isRunnable =
-            block.type === "read" ||
-            block.type === "write" ||
-            block.type === "rpc" ||
-            block.type === "if" ||
-            block.type === "recipe";
+          const isRunnable = isExecutableType(block.type);
           return (
             <button
               key={block.id}

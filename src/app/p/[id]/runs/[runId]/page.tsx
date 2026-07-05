@@ -55,6 +55,16 @@ function RunEntry({ entry, index }: { entry: SavedRunEntry; index: number }) {
       ? { "Block number": result.blockNumber }
       : {}),
     ...(result?.details ? result.details : {}),
+    ...(result?.events && result.events.length > 0
+      ? {
+          Events: Object.fromEntries(
+            result.events.map((e, i) => [
+              `[${e.logIndex ?? i}] ${e.contract}.${e.event}`,
+              e.args ?? "(not decoded)",
+            ]),
+          ),
+        }
+      : {}),
     ...(result?.txDetails ? { Transaction: result.txDetails } : {}),
   };
   const hasDetails = Object.keys(details).length > 0;

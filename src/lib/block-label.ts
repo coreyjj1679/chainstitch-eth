@@ -2,6 +2,7 @@ import type {
   BlockType,
   CallConfig,
   ContractEntry,
+  EventConfig,
   IfConfig,
   MarkdownConfig,
   NotebookBlock,
@@ -15,6 +16,16 @@ import type {
 /** Group cells that contain child blocks (one level deep, never nested). */
 export function isGroupType(type: BlockType): boolean {
   return type === "sender" || type === "if";
+}
+
+/** Blocks that hit the chain themselves (run/simulate buttons, codegen). */
+export function isRunnableType(type: BlockType): boolean {
+  return type === "read" || type === "write" || type === "rpc" || type === "event";
+}
+
+/** Blocks that produce a result cell (runnables plus `if` and recipe cells). */
+export function isExecutableType(type: BlockType): boolean {
+  return isRunnableType(type) || type === "if" || type === "recipe";
 }
 
 /** Constants declared by variable blocks, as a { name: value } scope. */
@@ -57,6 +68,12 @@ export function blockLabel(
       if (!config.method) return "RPC (unconfigured)";
       const params = (config.params ?? []).filter((p) => p !== "").join(", ");
       return `${config.method}(${params})`;
+    }
+    case "event": {
+      const config = block.config as EventConfig;
+      const contract = contracts.find((c) => c.id === config.contractId);
+      if (!contract || !config.eventName) return "Events (unconfigured)";
+      return `${contract.name}.${config.eventName} events`;
     }
     case "sender": {
       const address = (block.config as SenderConfig).address;
@@ -107,6 +124,10 @@ export function isBlockConfigured(block: NotebookBlock): boolean {
     }
     case "rpc":
       return !!(block.config as RpcConfig).method;
+    case "event": {
+      const config = block.config as EventConfig;
+      return !!config.contractId && !!config.eventName;
+    }
     case "sender":
       return !!(block.config as SenderConfig).address;
     case "variable":

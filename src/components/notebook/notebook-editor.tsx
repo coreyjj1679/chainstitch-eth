@@ -36,6 +36,7 @@ import {
   Plus,
   Radio,
   Save as SaveIcon,
+  ScrollText,
   Sparkles,
   StepForward,
   UserRound,
@@ -50,7 +51,9 @@ import {
   blockLabel,
   executionOrder,
   isBlockConfigured,
+  isExecutableType,
   isGroupType,
+  isRunnableType,
 } from "@/lib/block-label";
 import { parseBigIntSafe, stringifyBigIntSafe } from "@/lib/serialize";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
@@ -59,6 +62,7 @@ import { useNotebookStore } from "@/stores/notebook-store";
 import { BlockShell } from "@/components/notebook/block-shell";
 import { BlockSummary } from "@/components/notebook/block-summary";
 import { CallBlock } from "@/components/notebook/call-block";
+import { EventBlock } from "@/components/notebook/event-block";
 import { RpcBlock } from "@/components/notebook/rpc-block";
 import { MarkdownBlock } from "@/components/notebook/markdown-block";
 import { SenderBlock } from "@/components/notebook/sender-block";
@@ -74,6 +78,7 @@ import type {
   BlockType,
   CallConfig,
   ContractEntry,
+  EventConfig,
   IfConfig,
   MarkdownConfig,
   NotebookBlock,
@@ -117,6 +122,12 @@ const BLOCK_TYPES: Array<{
   { type: "read", label: "Read", description: "Call a view function", icon: Eye },
   { type: "write", label: "Write", description: "Send a transaction", icon: Pencil },
   { type: "rpc", label: "RPC", description: "Raw JSON-RPC call", icon: Radio },
+  {
+    type: "event",
+    label: "Events",
+    description: "Query & decode event logs",
+    icon: ScrollText,
+  },
   { type: "markdown", label: "Text", description: "Markdown notes", icon: Braces },
   {
     type: "variable",
@@ -143,10 +154,6 @@ const BLOCK_TYPES: Array<{
     icon: BookMarked,
   },
 ];
-
-const isRunnableType = (t: BlockType) => t === "read" || t === "write" || t === "rpc";
-const isExecutableType = (t: BlockType) =>
-  isRunnableType(t) || t === "if" || t === "recipe";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -600,6 +607,7 @@ export function NotebookEditor({
           blockNumber: outcome.blockNumber,
           details: outcome.details,
           txDetails: outcome.txDetails,
+          events: outcome.events,
           durationMs: Math.round(performance.now() - started),
           ranAt: Date.now(),
         };
@@ -620,8 +628,7 @@ export function NotebookEditor({
       block: NotebookBlock,
       opts?: { mode?: "execute" | "simulate"; sender?: `0x${string}` },
     ): Promise<boolean> => {
-      if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
-        return true;
+      if (!isRunnableType(block.type)) return true;
       setResult(block.id, { status: "running" });
       const result = await executeBlock(block, opts);
       setResult(block.id, result);
@@ -722,9 +729,7 @@ export function NotebookEditor({
           }
           continue;
         }
-        if (step.type !== "read" && step.type !== "write" && step.type !== "rpc") {
-          continue;
-        }
+        if (!isRunnableType(step.type)) continue;
         if (!isBlockConfigured(step)) {
           rows[label] = "skipped — step not configured";
           skipped++;
@@ -881,10 +886,7 @@ export function NotebookEditor({
         .blocks.filter(
           (b) =>
             b.parentId === parentId &&
-            (b.type === "read" ||
-              b.type === "write" ||
-              b.type === "rpc" ||
-              b.type === "recipe"),
+            (isRunnableType(b.type) || b.type === "recipe"),
         );
       for (const child of children) {
         setResult(child.id, {
@@ -1039,8 +1041,7 @@ export function NotebookEditor({
           }
           continue;
         }
-        if (block.type !== "read" && block.type !== "write" && block.type !== "rpc")
-          continue;
+        if (!isRunnableType(block.type)) continue;
         if (skipUnconfigured(block)) continue;
         const gate = checkRunWhen(block);
         if (gate === null) {
@@ -1301,6 +1302,15 @@ export function NotebookEditor({
       return (
         <RpcBlock
           config={block.config as RpcConfig}
+          onChange={(c) => updateBlockConfig(block.id, c)}
+        />
+      );
+    }
+    if (block.type === "event") {
+      return (
+        <EventBlock
+          config={block.config as EventConfig}
+          contracts={contracts}
           onChange={(c) => updateBlockConfig(block.id, c)}
         />
       );

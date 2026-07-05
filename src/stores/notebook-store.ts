@@ -20,6 +20,8 @@ function defaultConfig(type: BlockType): BlockConfig {
       return { contractId: "", functionName: "", args: [] };
     case "rpc":
       return { method: "getBlockNumber", params: [] };
+    case "event":
+      return { contractId: "", eventName: "", filters: [], fromBlock: "", toBlock: "" };
     case "markdown":
       return { text: "" };
     case "sender":

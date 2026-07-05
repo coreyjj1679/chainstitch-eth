@@ -1,10 +1,11 @@
-import type { AbiFunction } from "viem";
-import { getFunctions } from "@/lib/abi";
+import type { AbiEvent, AbiFunction } from "viem";
+import { getEvents, getFunctions } from "@/lib/abi";
 import { executionOrder } from "@/lib/block-label";
 import { getRpcMethod } from "@/lib/rpc-methods";
 import type {
   CallConfig,
   ContractEntry,
+  EventConfig,
   IfConfig,
   NotebookBlock,
   Project,
@@ -48,6 +49,22 @@ function soleVariable(raw: string): string | null {
 
 function findFn(contract: ContractEntry, name: string): AbiFunction | undefined {
   return getFunctions(contract.abi).find((f) => f.name === name);
+}
+
+function findEvent(contract: ContractEntry, name: string): AbiEvent | undefined {
+  return getEvents(contract.abi).find((e) => e.name === name);
+}
+
+/** The event's indexed filters that are actually set, with their inputs. */
+function activeFilters(
+  config: EventConfig,
+  event: AbiEvent,
+): Array<{ name: string; type: string; raw: string }> {
+  return event.inputs.flatMap((input, i) => {
+    const raw = (config.filters ?? [])[i] ?? "";
+    if (!input.indexed || !input.name || raw.trim() === "") return [];
+    return [{ name: input.name, type: input.type, raw }];
+  });
 }
 
 /* ── argument rendering per language ─────────────────────────────── */
@@ -110,6 +127,14 @@ function renderArgs(
 }
 
 /* ── shared signatures ───────────────────────────────────────────── */
+
+/** `event NumberSet(address indexed setter, uint256 n);` — rust sol! / solidity */
+function eventSoliditySignature(event: AbiEvent): string {
+  const params = event.inputs
+    .map((i) => `${i.type}${i.indexed ? " indexed" : ""}${i.name ? ` ${i.name}` : ""}`)
+    .join(", ");
+  return `event ${event.name}(${params});`;
+}
 
 /** `function setNumber(uint256 newNumber) external;` — used by rust sol! and solidity */
 function soliditySignature(fn: AbiFunction): string {
@@ -264,6 +289,67 @@ function genRpcTs(block: NotebookBlock, flavor: "viem" | "wagmi"): string {
   return [...hookLines, `const ${output} = ${call};`].join("\n");
 }
 
+/* ── event blocks (getLogs) ──────────────────────────────────────── */
+
+/** Block-range value for TS: bigint literal, tag string, or {{var}} name. */
+function renderBlockRefTs(raw: string | undefined): string | null {
+  const text = (raw ?? "").trim();
+  if (text === "") return null;
+  const variable = soleVariable(text);
+  if (variable) return variable;
+  if (/^\d+$/.test(text)) return `${text}n`;
+  return JSON.stringify(text);
+}
+
+function genEventTs(
+  block: NotebookBlock,
+  contract: ContractEntry,
+  event: AbiEvent,
+  flavor: "viem" | "wagmi",
+): string {
+  const config = block.config as EventConfig;
+  const varName = camelCase(contract.name);
+  const output = block.outputVariable ?? "logs";
+  const filters = activeFilters(config, event);
+  const argsLine =
+    filters.length > 0
+      ? `  args: { ${filters.map((f) => `${f.name}: ${renderArgTs(f.raw, f.type)}`).join(", ")} },`
+      : null;
+
+  if (flavor === "viem") {
+    const fromBlock = renderBlockRefTs(config.fromBlock);
+    const toBlock = renderBlockRefTs(config.toBlock);
+    return [
+      contractConstsTs(contract),
+      ``,
+      `const ${output} = await client.getContractEvents({`,
+      `  address: ${varName}Address,`,
+      `  abi: ${varName}Abi,`,
+      `  eventName: "${config.eventName}",`,
+      ...(argsLine ? [argsLine] : []),
+      ...(fromBlock ? [`  fromBlock: ${fromBlock},`] : []),
+      ...(toBlock ? [`  toBlock: ${toBlock},`] : []),
+      `});`,
+    ].join("\n");
+  }
+  return [
+    `import { useWatchContractEvent } from "wagmi";`,
+    ``,
+    contractConstsTs(contract),
+    ``,
+    `// Live subscription — for a one-shot history query, use the viem flavor.`,
+    `useWatchContractEvent({`,
+    `  address: ${varName}Address,`,
+    `  abi: ${varName}Abi,`,
+    `  eventName: "${config.eventName}",`,
+    ...(argsLine ? [argsLine] : []),
+    `  onLogs(${output}) {`,
+    `    console.log(${output});`,
+    `  },`,
+    `});`,
+  ].join("\n");
+}
+
 /* ── python (web3.py) ────────────────────────────────────────────── */
 
 function pythonRpcParam(raw: string, kind: string, optional?: boolean): string {
@@ -293,6 +379,38 @@ const PYTHON_RPC: Record<string, (p: string[]) => string> = {
 
 function genPython(block: NotebookBlock, contracts: ContractEntry[]): string {
   const output = snakeCase(block.outputVariable ?? "result");
+
+  if (block.type === "event") {
+    const config = block.config as EventConfig;
+    const contract = contracts.find((c) => c.id === config.contractId);
+    const event = contract && findEvent(contract, config.eventName);
+    if (!contract || !event) return "# Configure the block to see its code";
+    const varName = snakeCase(contract.name);
+    const filters = activeFilters(config, event);
+    const blockRef = (raw: string | undefined, fallback: string): string => {
+      const text = (raw ?? "").trim();
+      if (text === "") return fallback;
+      const variable = soleVariable(text);
+      if (variable) return variable.replace(/\./g, "_");
+      return /^\d+$/.test(text) ? text : JSON.stringify(text);
+    };
+    return [
+      `# ABI from your address book entry "${contract.name}"`,
+      `${varName} = w3.eth.contract(address="${contract.address || "0x…"}", abi=${varName.toUpperCase()}_ABI)`,
+      ``,
+      `${output} = ${varName}.events.${config.eventName}().get_logs(`,
+      `    from_block=${blockRef(config.fromBlock, '"earliest"')},`,
+      `    to_block=${blockRef(config.toBlock, '"latest"')},`,
+      ...(filters.length > 0
+        ? [
+            `    argument_filters={${filters
+              .map((f) => `"${f.name}": ${renderArgPython(f.raw, f.type)}`)
+              .join(", ")}},`,
+          ]
+        : []),
+      `)`,
+    ].join("\n");
+  }
 
   if (block.type === "rpc") {
     const config = block.config as RpcConfig;
@@ -353,6 +471,44 @@ const RUST_RPC: Record<string, (p: string[]) => string> = {
 function genRust(block: NotebookBlock, contracts: ContractEntry[]): string {
   const output = snakeCase(block.outputVariable ?? "result");
 
+  if (block.type === "event") {
+    const config = block.config as EventConfig;
+    const contract = contracts.find((c) => c.id === config.contractId);
+    const event = contract && findEvent(contract, config.eventName);
+    if (!contract || !event) return "// Configure the block to see its code";
+    const typeName = pascalCase(contract.name);
+    const instance = snakeCase(contract.name);
+    const filters = activeFilters(config, event);
+    const blockRef = (raw: string | undefined, fallback: string): string => {
+      const text = (raw ?? "").trim();
+      if (text === "") return fallback;
+      const variable = soleVariable(text);
+      if (variable) return `${variable.replace(/\./g, "_")}.into()`;
+      if (/^\d+$/.test(text)) return `${text}.into()`;
+      const tag = text.charAt(0).toUpperCase() + text.slice(1);
+      return `BlockNumberOrTag::${tag}`;
+    };
+    return [
+      `sol! {`,
+      `    #[sol(rpc)]`,
+      `    contract ${typeName} {`,
+      `        ${eventSoliditySignature(event)}`,
+      `    }`,
+      `}`,
+      ``,
+      `let ${instance} = ${typeName}::new(address!("${contract.address || "0x…"}"), provider.clone());`,
+      `let ${output} = ${instance}`,
+      `    .${event.name}_filter()`,
+      ...(filters.length > 0
+        ? [`    // indexed filters: ${filters.map((f) => `${f.name} = ${f.raw}`).join(", ")} — see .topic1()/.topic2()`]
+        : []),
+      `    .from_block(${blockRef(config.fromBlock, "BlockNumberOrTag::Earliest")})`,
+      `    .to_block(${blockRef(config.toBlock, "BlockNumberOrTag::Latest")})`,
+      `    .query()`,
+      `    .await?;`,
+    ].join("\n");
+  }
+
   if (block.type === "rpc") {
     const config = block.config as RpcConfig;
     const method = getRpcMethod(config.method);
@@ -411,6 +567,9 @@ function genRust(block: NotebookBlock, contracts: ContractEntry[]): string {
 function genSolidity(block: NotebookBlock, contracts: ContractEntry[]): string {
   if (block.type === "rpc") {
     return "// JSON-RPC calls have no Solidity equivalent";
+  }
+  if (block.type === "event") {
+    return "// Log queries have no Solidity equivalent — events are consumed off-chain";
   }
 
   const config = block.config as CallConfig;
@@ -506,6 +665,13 @@ export function generateBlockCode(
     case "viem":
     case "wagmi": {
       if (block.type === "rpc") return genRpcTs(block, flavor);
+      if (block.type === "event") {
+        const config = block.config as EventConfig;
+        const contract = contracts.find((c) => c.id === config.contractId);
+        const event = contract && findEvent(contract, config.eventName);
+        if (!contract || !event) return "// Configure the block to see its code";
+        return genEventTs(block, contract, event, flavor);
+      }
       const config = block.config as CallConfig;
       const contract = contracts.find((c) => c.id === config.contractId);
       const fn = contract && findFn(contract, config.functionName);

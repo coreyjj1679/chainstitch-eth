@@ -4,6 +4,7 @@ export type BlockType =
   | "read"
   | "write"
   | "rpc"
+  | "event"
   | "markdown"
   | "sender"
   | "variable"
@@ -16,6 +17,24 @@ export interface CallConfig {
   args: string[];
   /** ETH value for payable writes, in wei (supports {{var}}) */
   value?: string;
+}
+
+/**
+ * Event block: query `eth_getLogs` for one contract event and decode the
+ * matches (usable downstream via the block's output variable).
+ */
+export interface EventConfig {
+  contractId: string;
+  eventName: string;
+  /**
+   * Indexed-topic filters aligned with the event's input indices (empty
+   * string = match any). Non-indexed positions are ignored. Supports {{var}}.
+   */
+  filters: string[];
+  /** "earliest" | "latest" | block number | {{var}}; empty = recent range. */
+  fromBlock?: string;
+  /** Same forms as fromBlock; empty = "latest". */
+  toBlock?: string;
 }
 
 export interface RpcConfig {
@@ -61,6 +80,7 @@ export interface RecipeBlockConfig {
 
 export type BlockConfig =
   | CallConfig
+  | EventConfig
   | RpcConfig
   | MarkdownConfig
   | SenderConfig
@@ -235,6 +255,19 @@ export interface ProjectAccess {
 
 export type BlockRunStatus = "idle" | "running" | "success" | "error" | "skipped";
 
+/** One receipt log decoded against the address book (the Events tab). */
+export interface DecodedEventEntry {
+  /** Emitting address (as reported by the log). */
+  address: string;
+  /** Address-book name of the emitter, or a shortened address. */
+  contract: string;
+  /** Event name — or a raw-topic note when no ABI matched. */
+  event: string;
+  /** Decoded args keyed by param name (missing when undecodable). */
+  args?: Record<string, unknown>;
+  logIndex?: number;
+}
+
 export interface BlockResult {
   status: BlockRunStatus;
   value?: unknown;
@@ -256,6 +289,8 @@ export interface BlockResult {
   details?: Record<string, unknown>;
   /** Transaction details (hash, status, gas, logs) for the Transaction tab */
   txDetails?: Record<string, unknown>;
+  /** Receipt logs decoded against the address book, for the Events tab */
+  events?: DecodedEventEntry[];
 }
 
 /** Per-notebook run state persisted Jupyter-style (outputs survive reloads). */

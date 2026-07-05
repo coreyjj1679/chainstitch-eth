@@ -1,4 +1,4 @@
-import type { Abi, AbiFunction, AbiParameter } from "viem";
+import type { Abi, AbiEvent, AbiFunction, AbiParameter } from "viem";
 
 type AbiValidation = { ok: true; abi: Abi } | { ok: false; error: string };
 
@@ -50,9 +50,21 @@ export function getWriteFunctions(abi: Abi): AbiFunction[] {
   );
 }
 
+export function getEvents(abi: Abi): AbiEvent[] {
+  return abi.filter((e): e is AbiEvent => e.type === "event");
+}
+
 export function functionSignature(fn: AbiFunction): string {
   const params = fn.inputs.map((i) => formatParam(i)).join(", ");
   return `${fn.name}(${params})`;
+}
+
+/** `Transfer(address from, address to, uint256 value)` — indexed marked. */
+export function eventSignature(event: AbiEvent): string {
+  const params = event.inputs
+    .map((i) => `${i.type}${i.indexed ? " indexed" : ""}${i.name ? ` ${i.name}` : ""}`)
+    .join(", ");
+  return `${event.name}(${params})`;
 }
 
 function formatParam(param: AbiParameter): string {

@@ -25,7 +25,11 @@ pragma solidity ^0.8.20;
 contract Counter {
     uint256 public number;
     string public name = "SmokeCounter";
-    function setNumber(uint256 newNumber) public { number = newNumber; }
+    event NumberSet(address indexed setter, uint256 newNumber);
+    function setNumber(uint256 newNumber) public {
+        number = newNumber;
+        emit NumberSet(msg.sender, newNumber);
+    }
     function increment() public { number++; }
 }`;
 
@@ -320,6 +324,94 @@ async function main() {
     functionName: "number",
   });
   assert(guarded === 100n, "guarded write ran exactly once (number == 100)");
+
+  // 9. write receipts decode their logs against the address book
+  const decodedEvents = impersonateOutcome.events;
+  assert(
+    Array.isArray(decodedEvents) && decodedEvents.length === 1,
+    "write outcome carries decoded receipt events",
+  );
+  assert(
+    decodedEvents![0].event === "NumberSet" && decodedEvents![0].contract === "Counter",
+    "receipt log decoded to Counter.NumberSet",
+  );
+  assert(
+    decodedEvents![0].args?.newNumber === 777n,
+    `decoded event arg newNumber === 777n (got ${decodedEvents![0].args?.newNumber})`,
+  );
+  assert(
+    String(decodedEvents![0].args?.setter).toLowerCase() ===
+      "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+    "decoded indexed arg carries the impersonated setter",
+  );
+
+  // 10. event block: query + decode logs (empty range = recent-window default).
+  // Emissions so far: 42 (deploy setup), 777 (impersonated), 42 (restore),
+  // 100 (guarded pass 1) — all within the default lookback on a fresh chain.
+  const eventBlock: NotebookBlock = {
+    id: "b9",
+    type: "event",
+    config: {
+      contractId: "c1",
+      eventName: "NumberSet",
+      filters: [],
+      fromBlock: "",
+      toBlock: "",
+    },
+    outputVariable: "numberSets",
+  };
+  const eventsOutcome = await runBlock(eventBlock, {
+    publicClient,
+    contracts: [contract],
+    scope,
+  });
+  const matches = eventsOutcome.value as Array<{
+    event: string;
+    blockNumber: bigint;
+    txHash: string;
+    args: Record<string, unknown>;
+  }>;
+  assert(matches.length === 4, `event block finds all 4 logs (got ${matches.length})`);
+  assert(matches[0].args.newNumber === 42n, "oldest log decodes newNumber 42n");
+  assert(matches[3].args.newNumber === 100n, "newest log decodes newNumber 100n");
+  scope.numberSets = matches;
+  assert(
+    interpolate("{{numberSets[3].args.newNumber}}", scope) === 100n,
+    "event output drills in via {{variable.paths}}",
+  );
+
+  // 10b. indexed-topic filter narrows to one setter
+  const filtered = await runBlock(
+    {
+      id: "b10",
+      type: "event",
+      config: {
+        contractId: "c1",
+        eventName: "NumberSet",
+        filters: ["0x70997970C51812dc3A010C7d01b50e0d17dc79C8"],
+        fromBlock: "earliest",
+        toBlock: "latest",
+      },
+      outputVariable: null,
+    },
+    { publicClient, contracts: [contract], scope },
+  );
+  assert(
+    (filtered.value as unknown[]).length === 2,
+    "indexed filter narrows to the impersonated sender's 2 logs",
+  );
+
+  // 11. event codegen
+  const viemEvents = generateBlockCode(eventBlock, [contract], project, "viem");
+  assert(viemEvents.includes("getContractEvents"), "viem event codegen queries logs");
+  assert(viemEvents.includes('eventName: "NumberSet"'), "viem event codegen names the event");
+  const wagmiEvents = generateBlockCode(eventBlock, [contract], project, "wagmi");
+  assert(
+    wagmiEvents.includes("useWatchContractEvent"),
+    "wagmi event codegen subscribes via hook",
+  );
+  const pyEvents = generateBlockCode(eventBlock, [contract], project, "python");
+  assert(pyEvents.includes("get_logs"), "python event codegen uses get_logs");
 
   console.log("\nAll smoke tests passed.");
 }

@@ -1,14 +1,29 @@
-import { encodeFunctionData, numberToHex, type Abi, type AbiFunction, type PublicClient } from "viem";
+import {
+  decodeEventLog,
+  encodeFunctionData,
+  numberToHex,
+  type Abi,
+  type AbiFunction,
+  type BlockTag,
+  type PublicClient,
+} from "viem";
 import type { Config } from "wagmi";
 import {
   simulateContract,
   waitForTransactionReceipt,
   writeContract,
 } from "wagmi/actions";
-import { coerceArg, functionSignature, getFunctions } from "@/lib/abi";
+import { coerceArg, eventSignature, functionSignature, getEvents, getFunctions } from "@/lib/abi";
 import { getRpcMethod, type RpcParamSpec } from "@/lib/rpc-methods";
 import { interpolate } from "@/lib/variables";
-import type { CallConfig, ContractEntry, NotebookBlock, RpcConfig } from "@/lib/types";
+import type {
+  CallConfig,
+  ContractEntry,
+  DecodedEventEntry,
+  EventConfig,
+  NotebookBlock,
+  RpcConfig,
+} from "@/lib/types";
 
 export interface RunContext {
   publicClient: PublicClient;
@@ -39,6 +54,8 @@ export interface RunOutcome {
   details?: Record<string, unknown>;
   /** Transaction details: hash, status, gas, logs */
   txDetails?: Record<string, unknown>;
+  /** Receipt logs decoded against the address book */
+  events?: DecodedEventEntry[];
 }
 
 /** Best-effort chain head for run metadata; never fails the block run. */
@@ -50,7 +67,7 @@ async function headBlockNumber(client: PublicClient): Promise<bigint | undefined
   }
 }
 
-function findContract(ctx: RunContext, config: CallConfig): ContractEntry {
+function findContract(ctx: RunContext, config: { contractId: string }): ContractEntry {
   const contract = ctx.contracts.find((c) => c.id === config.contractId);
   if (!contract) throw new Error("Select a contract for this block");
   if (!contract.address)
@@ -175,6 +192,66 @@ function receiptDetails(
   };
 }
 
+function shortAddress(address: string): string {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
+
+/** A raw receipt log, as viem returns it. */
+interface ReceiptLog {
+  address: string;
+  topics: readonly `0x${string}`[];
+  data: `0x${string}`;
+  logIndex?: number;
+}
+
+/**
+ * Decode receipt logs against the address book — the "did the right event
+ * fire?" check. The emitting contract's own ABI is tried first, then every
+ * other ABI (proxies and factory-deployed children often emit through an
+ * address the book doesn't know). Undecodable logs stay listed as raw topics
+ * so the count always matches the receipt.
+ */
+export function decodeReceiptLogs(
+  logs: readonly unknown[],
+  contracts: ContractEntry[],
+): DecodedEventEntry[] {
+  return (logs as ReceiptLog[]).map((log) => {
+    const emitter = contracts.find(
+      (c) => c.address.toLowerCase() === log.address.toLowerCase(),
+    );
+    const candidates = [
+      ...(emitter ? [emitter] : []),
+      ...contracts.filter((c) => c !== emitter),
+    ];
+    for (const candidate of candidates) {
+      try {
+        const decoded = decodeEventLog({
+          abi: candidate.abi,
+          topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
+          data: log.data,
+        });
+        return {
+          address: log.address,
+          contract: emitter?.name ?? shortAddress(log.address),
+          // Non-const ABIs type eventName as possibly undefined; at runtime a
+          // successful decode always names the event.
+          event: (decoded.eventName as string | undefined) ?? "(unnamed event)",
+          args: (decoded.args ?? {}) as Record<string, unknown>,
+          logIndex: log.logIndex,
+        };
+      } catch {
+        // Try the next ABI.
+      }
+    }
+    return {
+      address: log.address,
+      contract: emitter?.name ?? shortAddress(log.address),
+      event: `unknown event (topic ${log.topics[0]?.slice(0, 10) ?? "0x"}…)`,
+      logIndex: log.logIndex,
+    };
+  });
+}
+
 /** Ensure a caller address is an EOA (no deployed bytecode). */
 async function assertEoa(client: PublicClient, address: `0x${string}`): Promise<void> {
   const code = await client.getCode({ address });
@@ -267,6 +344,7 @@ async function runWrite(block: NotebookBlock, ctx: RunContext): Promise<RunOutco
       blockNumber: receipt.blockNumber,
       details: baseDetails,
       txDetails: receiptDetails(txHash, receipt),
+      events: decodeReceiptLogs(receipt.logs, ctx.contracts),
     };
   }
 
@@ -293,6 +371,7 @@ async function runWrite(block: NotebookBlock, ctx: RunContext): Promise<RunOutco
     blockNumber: receipt.blockNumber,
     details: baseDetails,
     txDetails: receiptDetails(txHash, receipt),
+    events: decodeReceiptLogs(receipt.logs, ctx.contracts),
   };
 }
 
@@ -325,6 +404,101 @@ async function runRpc(block: NotebookBlock, ctx: RunContext): Promise<RunOutcome
   };
 }
 
+/** Matches kept per event query (newest win) — bounds value size & rendering. */
+const MAX_EVENT_MATCHES = 200;
+/** Default lookback when no fromBlock is given (public RPCs cap wide scans). */
+const DEFAULT_EVENT_LOOKBACK = 999n;
+
+const BLOCK_TAGS = new Set(["earliest", "latest", "pending", "safe", "finalized"]);
+
+/** "" → undefined; "latest"/"earliest"/… → tag; digits / {{var}} → bigint. */
+function resolveBlockRef(
+  raw: string | undefined,
+  scope: Record<string, unknown>,
+  field: string,
+): bigint | BlockTag | undefined {
+  const text = (raw ?? "").trim();
+  if (text === "") return undefined;
+  const resolved = interpolate(text, scope);
+  if (typeof resolved === "bigint") return resolved;
+  const asText = String(resolved).trim();
+  if (BLOCK_TAGS.has(asText)) return asText as BlockTag;
+  if (/^\d+$/.test(asText)) return BigInt(asText);
+  throw new Error(
+    `${field} must be a block number, a tag (latest/earliest/…) or a {{variable}} — got "${asText}"`,
+  );
+}
+
+async function runEvent(block: NotebookBlock, ctx: RunContext): Promise<RunOutcome> {
+  const config = block.config as EventConfig;
+  const contract = findContract(ctx, config);
+  const event = getEvents(contract.abi).find((e) => e.name === config.eventName);
+  if (!event) throw new Error("Select an event for this block");
+
+  // Indexed-topic filters, keyed by param name (viem's `args` object form).
+  const filterArgs: Record<string, unknown> = {};
+  const filterDetails: Record<string, unknown> = {};
+  event.inputs.forEach((input, i) => {
+    const raw = (config.filters ?? [])[i] ?? "";
+    if (!input.indexed || typeof raw !== "string" || raw.trim() === "") return;
+    if (!input.name) {
+      throw new Error(
+        `Cannot filter on unnamed indexed parameter #${i + 1} (${input.type})`,
+      );
+    }
+    const value = coerceArg(interpolate(raw, ctx.scope), input.type);
+    filterArgs[input.name] = value;
+    filterDetails[`${input.name} (${input.type})`] = value;
+  });
+
+  const head = await headBlockNumber(ctx.publicClient);
+  let fromBlock = resolveBlockRef(config.fromBlock, ctx.scope, "From block");
+  if (fromBlock === undefined) {
+    // Recent window by default: wide-open scans hit public RPC range caps.
+    fromBlock =
+      head !== undefined
+        ? head > DEFAULT_EVENT_LOOKBACK
+          ? head - DEFAULT_EVENT_LOOKBACK
+          : 0n
+        : "earliest";
+  }
+  const toBlock = resolveBlockRef(config.toBlock, ctx.scope, "To block") ?? "latest";
+
+  const logs = await ctx.publicClient.getContractEvents({
+    address: contract.address as `0x${string}`,
+    abi: contract.abi,
+    eventName: config.eventName,
+    ...(Object.keys(filterArgs).length > 0 ? { args: filterArgs } : {}),
+    fromBlock: fromBlock as bigint,
+    toBlock: toBlock as bigint,
+  });
+
+  const matches = logs.slice(-MAX_EVENT_MATCHES).map((log) => ({
+    event: config.eventName,
+    blockNumber: log.blockNumber,
+    txHash: log.transactionHash,
+    logIndex: log.logIndex,
+    args: (log.args ?? {}) as Record<string, unknown>,
+  }));
+
+  const range = `${typeof fromBlock === "bigint" ? fromBlock : fromBlock} → ${typeof toBlock === "bigint" ? toBlock : toBlock}`;
+  return {
+    value: matches,
+    kind: "Event logs (eth_getLogs)",
+    blockNumber: head,
+    details: {
+      Contract: `${contract.name} @ ${contract.address}`,
+      Event: eventSignature(event),
+      ...(Object.keys(filterDetails).length > 0 ? { Filters: filterDetails } : {}),
+      "Block range": range,
+      Matches:
+        logs.length > MAX_EVENT_MATCHES
+          ? `${logs.length} (showing the newest ${MAX_EVENT_MATCHES})`
+          : logs.length,
+    },
+  };
+}
+
 export async function runBlock(
   block: NotebookBlock,
   ctx: RunContext,
@@ -336,6 +510,8 @@ export async function runBlock(
       return runWrite(block, ctx);
     case "rpc":
       return runRpc(block, ctx);
+    case "event":
+      return runEvent(block, ctx);
     default:
       // markdown and sender blocks don't execute anything themselves
       return { value: undefined };
