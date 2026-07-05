@@ -92,8 +92,8 @@ address book feeds every notebook, the codegen, and the State tab — one
 source of truth per project.
 
 <p align="center">
-  <img src="screenshots/address-book.png" alt="The address book with Uniswap V3 Factory, the USDC/WETH pool, and a Chainlink feed">
-  <br><sub>Uniswap V3 Factory, the USDC/WETH 0.05% pool, and the Chainlink ETH/USD feed — all real mainnet addresses.</sub>
+  <img src="screenshots/address-book.png" alt="The address book: the fetch-by-address lookup resolving USDC to its implementation ABI, above Uniswap V3 and Chainlink entries">
+  <br><sub>Looking up USDC resolves the proxy to its <code>FiatTokenV2_2</code> implementation ABI — one click adds it beside the Uniswap V3 and Chainlink entries, all real mainnet addresses.</sub>
 </p>
 
 ### State tab
@@ -123,13 +123,13 @@ also start a recipe from scratch there, or overwrite one with a fresh
 selection via the bookmark dialog's “Save to” picker.
 
 <p align="center">
-  <img src="screenshots/recipe-cell.png" alt="A recipe cell inside a sender group after two runs — the Steps tab shows the allowance read, the resolved if-condition and the skipped approve">
-  <br><sub>An “Approve if needed” recipe cell on its second run: the allowance is already sufficient, so the <code>if</code> step resolves to <code>false</code> and the approve is skipped — <code>2 steps ran, 1 skipped</code>.</sub>
+  <img src="screenshots/recipe-cell.png" alt="A linked recipe cell after a run — the recipe name, its three steps, and the 3-steps-ran output">
+  <br><sub>A linked “Chain health check” cell: one click reran all three steps — expand <code>details</code> for each step's output, or detach it back into editable blocks.</sub>
 </p>
 
 <p align="center">
-  <img src="screenshots/recipes-tab.png" alt="The project's recipe library with saved recipes and their step lists">
-  <br><sub>Recipes are the project's library of saved flows — open one from the sidebar to edit and test it like a notebook; every notebook's add-block menu offers them.</sub>
+  <img src="screenshots/recipes-editor.png" alt="A recipe open in the notebook editor, with its steps, output variables, and the Save button">
+  <br><sub>Recipes open from the sidebar into the same editor as notebooks — tweak steps with the typed forms, test-run in place, then <b>Save</b> to publish to every linked cell.</sub>
 </p>
 
 ### And more
@@ -145,9 +145,13 @@ selection via the bookmark dialog's “Save to” picker.
   Uses Google AI Studio's free tier (~1,500 requests/day, no card); calls go
   straight from your browser to Google, and the key never touches the
   Chainstitch server.
-- **Document tabs** — notebooks and recipes open in browser-style tabs above
-  the editor: switch with a click, close with the ✕ or a middle-click, drag
-  to reorder, and the open set persists per project in your browser.
+- **Document tabs & project overview** — notebooks and recipes open in
+  browser-style tabs above the editor: switch with a click, close with the ✕
+  or a middle-click, drag to reorder, and the open set persists per project
+  in your browser. Each project's **Overview** page is the explorer for its
+  notebooks, recipes, contracts and state dashboard.
+- **In-app docs** — `/docs` walks through usage, anvil workflows and
+  self-hosting, right inside the app (public on team-mode instances).
 - **Write blocks simulate first** — revert reasons surface *before* the wallet
   prompt — then send and await the receipt.
 - **Simulate as anyone** — dry-run entire notebooks as any address via
@@ -319,10 +323,11 @@ browser wallets work without it.
 - Put a reverse proxy (Caddy, nginx, Traefik) in front for TLS — sessions are
   httpOnly cookies (marked `Secure` over HTTPS) and SIWE messages are
   domain-bound to `APP_URL`, which must be the exact URL users visit.
-- Signed-out visitors on a team-mode instance see a landing page at `/`
-  (app routes stay login-gated). Optional env vars wire its buttons:
-  `DEMO_SHARE_URL` (a project's "anyone with the link" URL for the
-  Try-the-demo button) and `GITHUB_URL` — both read at request time, no
+- Signed-out visitors on a team-mode instance see a landing page at `/`,
+  and `/docs` is public too (all other app routes stay login-gated).
+  Optional env vars wire the landing buttons: `DEMO_SHARE_URL` (a project's
+  "anyone with the link" URL for the Try-the-demo button) and `GITHUB_URL`
+  (defaults to the Chainstitch repo) — both read at request time, no
   rebuild needed.
 - Never expose a `local`-mode instance to the internet; it has no auth by
   design. Use `team` mode for anything reachable by others.
