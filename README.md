@@ -150,6 +150,15 @@ selection via the bookmark dialog's “Save to” picker.
   or a middle-click, drag to reorder, and the open set persists per project
   in your browser. Each project's **Overview** page is the explorer for its
   notebooks, recipes, contracts and state dashboard.
+- **Version history** — notebooks keep a Google-Docs-style edit history:
+  every save is recorded automatically (consecutive edits by the same editor
+  group into one version), with editor names, a block-level diff against the
+  previous version, and one-click restore. Restoring appends a new version,
+  so nothing is ever lost.
+- **Saved runs** — every "Run all" / "Simulate all" pass stores its full
+  output as an immutable record. Browse them in the sidebar's **Saved runs**
+  group (pinned at the bottom); each opens in its own tab showing exactly
+  what every block returned at the time, even after the notebook changes.
 - **In-app docs** — `/docs` walks through usage, anvil workflows and
   self-hosting, right inside the app (public on team-mode instances).
 - **Write blocks simulate first** — revert reasons surface *before* the wallet
@@ -233,6 +242,30 @@ docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
    button), or an **anyone-with-the-link** URL for view/edit access with no
    account at all. Teammates just open the site and sign with their wallet —
    invites are claimed on first sign-in, no email involved.
+
+### No domain yet?
+
+Three ways to run a team instance without buying one:
+
+- **sslip.io (recommended — stable URL, no signup).** Hostnames like
+  `notebook.203-0-113-7.sslip.io` resolve to `203.0.113.7` automatically —
+  put your VPS IP (dashes for dots) in the name and use the Caddy overlay
+  exactly as above, with `APP_DOMAIN=notebook.<your-ip>.sslip.io`. The URL
+  is stable as long as the VPS IP is. One caveat: Let's Encrypt rate
+  limits are shared by all sslip.io users, so certificate issuance can
+  occasionally need a retry.
+- **Cloudflare quick tunnel (trials only).**
+  `docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d`
+  gives you an `https://….trycloudflare.com` URL with no account, no domain
+  and no open ports — but the URL is random and **rotates on every tunnel
+  restart**, and sign-in sessions and share links are bound to it, so each
+  rotation logs everyone out until you update `APP_URL`. Fine for showing
+  the team; wrong for the instance they bookmark. (A permanent *named*
+  tunnel is great — but requires a domain on Cloudflare anyway.)
+- **Tailscale (private team, nothing public).** If everyone installs
+  Tailscale, `tailscale serve --bg 3000` on the VPS gives a stable
+  `https://<host>.<tailnet>.ts.net` URL with a real certificate, reachable
+  only inside your tailnet. Set that as `APP_URL` and skip both overlays.
 
 ### Team mode in four variables
 
@@ -358,10 +391,11 @@ browser wallets work without it.
 
 Private keys never touch the server: writes are signed in the browser wallet,
 and reads/RPC calls execute client-side against your project's RPC. The server
-stores notebook *definitions* — never execution results (run outputs persist
-client-side and in the workspace's notebook run-state). RPC URLs are visible to
-workspace members whose browsers execute against them, so use rate-limited or
-public keys for shared projects.
+stores notebook *definitions* (including their edit history) and the run
+outputs your workspace keeps — the notebook's live run-state and saved
+Run-all records; execution itself happens entirely in the browser. RPC URLs
+are visible to workspace members whose browsers execute against them, so use
+rate-limited or public keys for shared projects.
 
 ## Tech stack
 

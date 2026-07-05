@@ -1,0 +1,27 @@
+# Cloudflare Tunnel overlay — HTTPS without opening ports 80/443 (and, with
+# a quick tunnel, without owning a domain at all).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+#   docker compose logs cloudflared   # shows the https://….trycloudflare.com URL
+#
+# Then set APP_URL in .env to that exact URL and `docker compose up -d` again
+# (SIWE sign-in is domain-bound, so the app must know its public URL).
+#
+# ⚠ Quick tunnels are for trials: the URL is random and CHANGES whenever the
+# tunnel restarts — every restart invalidates sessions and share links until
+# you update APP_URL. For a long-lived instance use a named tunnel (needs a
+# domain on Cloudflare): create it in the Zero Trust dashboard, put its token
+# in .env as TUNNEL_TOKEN, and swap the command below for:
+#     command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate --url http://chainstitch:3000
+    depends_on:
+      - chainstitch
+    restart: unless-stopped
+
+  # The tunnel dials the app over the compose network; nothing is published
+  # on the host at all.
+  chainstitch:
+    ports: !reset []
