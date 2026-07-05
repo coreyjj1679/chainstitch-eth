@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { cloneElement, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAddress } from "viem";
 import { Copy, Globe, Link2, RefreshCw, Share2, Trash2, UserPlus } from "lucide-react";
@@ -169,7 +169,17 @@ function LinkSharing({ projectId }: { projectId: string }) {
  * invites. Access is granted to the whole project — the unit a notebook's
  * contracts, RPC config and recipes live in.
  */
-export function ShareProjectDialog({ project }: { project: Project }) {
+export function ShareProjectDialog({
+  project,
+  trigger,
+  children,
+}: {
+  project: Project;
+  /** Custom trigger element (Base UI render prop); defaults to the header Share button. */
+  trigger?: React.ReactElement;
+  /** Content of the custom trigger; ignored without `trigger`. */
+  children?: React.ReactNode;
+}) {
   const queryClient = useQueryClient();
   const { data: me } = useMe();
   const [open, setOpen] = useState(false);
@@ -216,10 +226,19 @@ export function ShareProjectDialog({ project }: { project: Project }) {
 
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Share2 data-icon="inline-start" />
-        Share
-      </Button>
+      {trigger ? (
+        // cloneElement keeps the dialog decoupled from the trigger's markup
+        // (the explorer passes a whole card); Base UI's render-prop trigger
+        // would need the Dialog root to wrap it instead.
+        cloneElement(trigger as React.ReactElement<{ onClick?: () => void }>, {
+          onClick: () => setOpen(true),
+        }, children)
+      ) : (
+        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          <Share2 data-icon="inline-start" />
+          Share
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>

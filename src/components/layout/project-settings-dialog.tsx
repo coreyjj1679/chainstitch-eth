@@ -19,7 +19,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-export function ProjectSettingsDialog({ project }: { project: Project }) {
+export function ProjectSettingsDialog({
+  project,
+  trigger,
+  children,
+}: {
+  project: Project;
+  /** Custom trigger element (Base UI render prop); defaults to the header name button. */
+  trigger?: React.ReactElement;
+  /** Content of the custom trigger; ignored without `trigger`. */
+  children?: React.ReactNode;
+}) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(project.name);
@@ -60,17 +70,21 @@ export function ProjectSettingsDialog({ project }: { project: Project }) {
         }
       }}
     >
-      <DialogTrigger
-        render={
-          <button
-            className="group/name flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-muted/60"
-            title="Project settings"
-          />
-        }
-      >
-        <span className="truncate text-sm leading-none font-medium">{project.name}</span>
-        <Pencil className="size-3 shrink-0 text-muted-foreground/0 transition-colors group-hover/name:text-muted-foreground" />
-      </DialogTrigger>
+      {trigger ? (
+        <DialogTrigger render={trigger}>{children}</DialogTrigger>
+      ) : (
+        <DialogTrigger
+          render={
+            <button
+              className="group/name flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 transition-colors hover:bg-muted/60"
+              title="Project settings"
+            />
+          }
+        >
+          <span className="truncate text-sm leading-none font-medium">{project.name}</span>
+          <Pencil className="size-3 shrink-0 text-muted-foreground/0 transition-colors group-hover/name:text-muted-foreground" />
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Project settings</DialogTitle>

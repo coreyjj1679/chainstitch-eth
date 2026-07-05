@@ -1,6 +1,6 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,7 +11,10 @@ import {
   Database,
   FileJson,
   NotebookPen,
+  Pencil,
   Plus,
+  Settings2,
+  Share2,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,8 +29,22 @@ import {
 import { duplicateNotebook } from "@/lib/duplicate-notebook";
 import { confirmLosingRecipeEdits } from "@/stores/notebook-store";
 import { CreateNotebookDialog } from "@/components/layout/create-notebook-dialog";
+import { ProjectSettingsDialog } from "@/components/layout/project-settings-dialog";
+import { ShareProjectDialog } from "@/components/workspace/share-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
+import type { NotebookMeta } from "@/lib/types";
 
 /** Compact "last touched" stamp for document cards. */
 function formatUpdated(ts: number): string {
@@ -68,6 +85,83 @@ function SectionHeader({
       </h2>
       {action}
     </div>
+  );
+}
+
+/** Pencil-triggered dialog to rename a notebook / edit its description. */
+function EditNotebookDialog({ notebook }: { notebook: NotebookMeta }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState(notebook.title);
+  const [description, setDescription] = useState(notebook.description ?? "");
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.notebooks.update(notebook.id, { title, description }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["notebooks", notebook.projectId] });
+      queryClient.invalidateQueries({ queryKey: ["notebook", notebook.id] });
+      setOpen(false);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) {
+          setTitle(notebook.title);
+          setDescription(notebook.description ?? "");
+        }
+      }}
+    >
+      <DialogTrigger
+        render={
+          <button
+            className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Rename ${notebook.title}`}
+            title="Rename / edit description"
+          />
+        }
+      >
+        <Pencil className="size-3.5" />
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Edit notebook</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="en-title">Title</Label>
+            <Input
+              id="en-title"
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && title) save.mutate();
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="en-desc">Description (optional)</Label>
+            <Textarea
+              id="en-desc"
+              placeholder="What flow does this notebook document?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button disabled={!title || save.isPending} onClick={() => save.mutate()}>
+            Save
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -191,6 +285,7 @@ export default function ProjectExplorerPage({
                   </span>
                   {canEdit && (
                     <span className="relative z-10 flex items-center opacity-0 transition-opacity group-hover:opacity-100">
+                      <EditNotebookDialog notebook={n} />
                       <button
                         className="flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
                         aria-label={`Duplicate ${n.title}`}
@@ -375,6 +470,45 @@ export default function ProjectExplorerPage({
             </div>
             <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5" />
           </Link>
+          {project?.role === "owner" && (
+            <>
+              {/* Self-gates on team mode: renders nothing in local mode. */}
+              <ShareProjectDialog
+                project={project}
+                trigger={
+                  <button className="group flex items-center gap-3 rounded-xl border bg-card/40 p-4 text-left transition-colors hover:border-border hover:bg-card/70" />
+                }
+              >
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-violet-400/10 text-violet-400">
+                  <Share2 className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Sharing &amp; access</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Invite a wallet, or turn on an anyone-with-the-link URL
+                  </p>
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5" />
+              </ShareProjectDialog>
+              <ProjectSettingsDialog
+                project={project}
+                trigger={
+                  <button className="group flex items-center gap-3 rounded-xl border bg-card/40 p-4 text-left transition-colors hover:border-border hover:bg-card/70" />
+                }
+              >
+                <div className="flex size-8 shrink-0 items-center justify-center rounded-lg border bg-amber-400/10 text-amber-400">
+                  <Settings2 className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">Project settings</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    Name, description, chain id, RPC and explorer URLs
+                  </p>
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-muted-foreground/40 transition-transform group-hover:translate-x-0.5" />
+              </ProjectSettingsDialog>
+            </>
+          )}
         </div>
       </section>
     </div>
