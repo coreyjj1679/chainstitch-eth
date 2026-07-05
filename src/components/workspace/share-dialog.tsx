@@ -368,7 +368,7 @@ export function ShareProjectDialog({
           <p className="text-xs text-muted-foreground/70">
             Members run blocks from their own browser against this project&apos;s
             RPC, so the RPC URL is visible to everyone here. Workspace-wide
-            membership is managed from the account menu instead.
+            membership is managed in Settings (the gear button in the header).
           </p>
         </DialogContent>
       </Dialog>
