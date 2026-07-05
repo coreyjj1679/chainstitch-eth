@@ -139,10 +139,14 @@ async function main() {
     // Unauthenticated access
     const anon = client(null);
     ok((await anon("GET", "/api/projects")).status === 401, "anonymous API request gets 401");
+    // The root stays public in team mode — signed-out visitors get the
+    // landing page there; every app route below still redirects to login.
     const home = await anon("GET", "/");
+    ok(home.status === 200, "anonymous root request gets the landing page");
+    const gated = await anon("GET", "/settings");
     ok(
-      home.status === 307 && home.headers.get("location")?.includes("/login"),
-      "anonymous page request redirects to /login",
+      gated.status === 307 && gated.headers.get("location")?.includes("/login"),
+      "anonymous app route redirects to /login",
     );
     ok((await anon("GET", "/login")).status === 200, "login page is reachable");
 
