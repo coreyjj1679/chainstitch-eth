@@ -6,11 +6,12 @@ import { GithubLink } from "@/components/github-link";
 import { Logo } from "@/components/logo";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { DocsToc } from "./toc";
 
 export const metadata: Metadata = {
   title: "Docs — Chainstitch",
   description:
-    "How to use and self-host Chainstitch: notebooks, blocks, variables, recipes, the address book, anvil workflows, and team mode.",
+    "How to use and self-host Chainstitch: notebooks, blocks, variables, recipes, the address book, anvil workflows, security, and team mode.",
 };
 
 const TOC = [
@@ -22,6 +23,7 @@ const TOC = [
   ["codegen", "Codegen & AI import"],
   ["anvil", "Local chains & forks"],
   ["team-mode", "Team mode & self-hosting"],
+  ["security", "Security & your data"],
   ["operations", "Operations"],
 ] as const;
 
@@ -112,7 +114,7 @@ export default function DocsPage() {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-10 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-3">
           <div className="flex items-center gap-3">
             <Link href="/" className="flex items-center">
               <Logo size={22} />
@@ -132,7 +134,27 @@ export default function DocsPage() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 gap-10 px-6 py-10">
+        {/* Left rail: sticky section nav (scroll-spy) */}
+        <aside className="hidden w-52 shrink-0 lg:block">
+          <div className="sticky top-20">
+            <p className="mb-2 px-3 text-xs font-medium tracking-wide text-muted-foreground/70 uppercase">
+              On this page
+            </p>
+            <DocsToc items={TOC} />
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 flex items-center gap-1 px-3 text-xs text-muted-foreground/70 transition-colors hover:text-foreground"
+            >
+              Full README on GitHub
+              <ArrowUpRight className="size-3" />
+            </a>
+          </div>
+        </aside>
+
+        <main className="min-w-0 max-w-3xl flex-1">
         <h1 className="mb-2 text-2xl font-semibold tracking-tight">
           Using &amp; hosting Chainstitch
         </h1>
@@ -150,8 +172,8 @@ export default function DocsPage() {
           stays the full reference.
         </p>
 
-        {/* TOC */}
-        <nav className="mb-10 flex flex-wrap gap-1.5">
+        {/* Compact TOC for viewports without the left rail */}
+        <nav className="mb-10 flex flex-wrap gap-1.5 lg:hidden">
           {TOC.map(([id, label]) => (
             <a
               key={id}
@@ -342,6 +364,77 @@ export default function DocsPage() {
             </p>
           </Section>
 
+          <Section id="security" title="Security & your data">
+            <p>
+              Chainstitch is built so the scary things can&apos;t happen{" "}
+              <strong>by construction</strong>, not by policy:
+            </p>
+            <DocsTable
+              head={["Invariant", "What it means"]}
+              rows={[
+                [
+                  "Keys never touch the server",
+                  "Writes are signed in your own browser wallet. There is no server-side signing capability at all, in any mode.",
+                ],
+                [
+                  "Execution is client-side",
+                  "Reads, writes and RPC calls go straight from your browser to your RPC endpoint. The server never proxies chain traffic.",
+                ],
+                [
+                  "Results are never stored server-side",
+                  "The database holds notebook definitions (projects, ABIs, blocks) — not what they returned when you ran them.",
+                ],
+                [
+                  "Your data is one file you own",
+                  "Everything lives in a single SQLite file on your machine or server. No telemetry, no license server, nothing phones home.",
+                ],
+              ]}
+            />
+            <p>
+              <strong>Team-mode authentication</strong> is Sign-In with
+              Ethereum done carefully: single-use nonces, signatures
+              domain-bound to your <Code>APP_URL</Code> (a message signed for
+              another site can&apos;t be replayed against yours), httpOnly{" "}
+              <Code>Secure</Code> session cookies, and an invite-only sign-in
+              policy — an uninvited wallet cannot even create an account.
+              Signing in costs nothing and touches no chain; it proves wallet
+              ownership, nothing more. Removing a member locks them out
+              immediately.
+            </p>
+            <p>
+              <strong>Authorization is enforced server-side</strong>, in one
+              data-access layer that scopes every query by workspace and
+              project role — never just hidden in the UI. Cross-tenant
+              isolation and the role matrix are pinned by regression suites
+              (130+ assertions) that run in CI on every change.
+            </p>
+            <p>
+              <strong>The one trade-off to know about:</strong> anyone who can
+              open a project can see its RPC URL, because their browser
+              executes calls against it. Use rate-limited or public RPC keys
+              for shared projects. Share links carry viewer or editor rights
+              only (never owner), are re-validated on every request, and
+              resetting one instantly invalidates every copy.
+            </p>
+            <p>
+              The server makes exactly one kind of outbound request — the
+              ABI lookup — and it is restricted to a fixed allowlist of
+              explorer hosts, with redirects refused and responses
+              size-capped. Found a hole anyway? Report it privately via
+              GitHub&apos;s{" "}
+              <a
+                href={`${GITHUB_URL}/security`}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                Security tab
+              </a>{" "}
+              — acknowledgement within 72 hours, assessment within 7 days,
+              credit when the fix ships.
+            </p>
+          </Section>
+
           <Section id="operations" title="Operations">
             <p>
               Everything lives in one SQLite file (<Code>data/chainstitch.db</Code>,
@@ -367,10 +460,11 @@ export default function DocsPage() {
             </p>
           </Section>
         </div>
-      </main>
+        </main>
+      </div>
 
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-6 py-4 text-xs text-muted-foreground/60">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-6 py-4 text-xs text-muted-foreground/60">
           <span>MIT licensed · issues and PRs welcome</span>
           <a
             href={GITHUB_URL}
