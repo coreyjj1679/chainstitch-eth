@@ -13,6 +13,19 @@ export default function proxy(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
+
+  // Marketing-only deployment (e.g. Vercel): APP_INSTANCE_URL points at the
+  // real self-hosted instance. This build serves only the landing page and
+  // docs — every other path (login, share links, app, API) redirects there,
+  // so the SQLite-backed routes never execute on serverless.
+  const instanceUrl = process.env.APP_INSTANCE_URL?.trim();
+  if (instanceUrl) {
+    if (pathname === "/" || pathname === "/docs") return NextResponse.next();
+    return NextResponse.redirect(
+      new URL(pathname + request.nextUrl.search, instanceUrl),
+    );
+  }
+
   // API routes authenticate per-request in the DAL (401 JSON, not redirects).
   if (pathname.startsWith("/api")) return NextResponse.next();
   // Share-link landing must stay reachable without any cookie at all.

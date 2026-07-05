@@ -212,20 +212,22 @@ environment variable apart:
 
 1. **Get a box and a name.** Any small VPS works. Point a DNS record (say
    `notebook.example.com`) at it and clone the repo there.
-2. **Terminate TLS in front.** Sessions and wallet sign-in are domain-bound,
-   so serve HTTPS. With Caddy that's the whole config:
+2. **Configure team mode.** `cp .env.example .env` and set the four
+   variables below, plus `APP_DOMAIN=notebook.example.com` for TLS.
+   `APP_URL` must be the *exact* URL the team will type
+   (`https://notebook.example.com`).
+3. **Start it with HTTPS.** Sessions and wallet sign-in are domain-bound, so
+   serve TLS. The bundled Caddy overlay does it in one command, certificate
+   included:
 
-```
-notebook.example.com {
-    reverse_proxy localhost:3000
-}
+```bash
+docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
 ```
 
-3. **Configure team mode.** `cp .env.example .env` and set the four
-   variables below. `APP_URL` must be the *exact* URL the team will type.
-4. **Start it.** `docker compose up -d --build` (compose picks up `.env`) —
-   or see [Deploy with Node](#deploy-with-node).
-5. **Sign in and share.** Open the domain, sign in with an `OWNER_WALLETS`
+   (Already have nginx/Traefik/Caddy on the box? Skip the overlay, run
+   `docker compose up -d --build`, and reverse-proxy `localhost:3000`
+   yourself — or see [Deploy with Node](#deploy-with-node).)
+4. **Sign in and share.** Open the domain, sign in with an `OWNER_WALLETS`
    wallet, and hand out access at whichever radius fits: the whole workspace
    (**Settings** → invite by wallet + role), a single project (its **Share**
    button), or an **anyone-with-the-link** URL for view/edit access with no
@@ -329,6 +331,12 @@ browser wallets work without it.
   "anyone with the link" URL for the Try-the-demo button) and `GITHUB_URL`
   (defaults to the Chainstitch repo) — both read at request time, no
   rebuild needed.
+- **Serverless hosts (Vercel & friends) can serve the marketing site only.**
+  The backend is a SQLite file, which needs a persistent disk — a team
+  instance won't survive on serverless. Deploy there with `APP_MODE=team`
+  plus `APP_INSTANCE_URL=https://your-instance.example.com`: that build
+  serves `/` and `/docs` and redirects everything else (login, share
+  links, API) to the real instance, so the database never loads.
 - Never expose a `local`-mode instance to the internet; it has no auth by
   design. Use `team` mode for anything reachable by others.
 - Removing a member locks them out immediately; they can't sign back in unless
