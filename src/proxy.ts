@@ -27,6 +27,9 @@ export default function proxy(request: NextRequest) {
       ? NextResponse.redirect(new URL("/", request.url))
       : NextResponse.next();
   }
+  // The root stays public: signed-out visitors get the landing page there
+  // (the page itself decides), while app routes below still require access.
+  if (pathname === "/") return NextResponse.next();
   if (!hasSession && !hasShareLink) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
