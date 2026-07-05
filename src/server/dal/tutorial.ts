@@ -1,5 +1,5 @@
 import "server-only";
-import { db, schema } from "@/db";
+import { db, schema, DEFAULT_WORKSPACE_ID } from "@/db";
 
 /**
  * Seeds the "Welcome to Chainstitch" tutorial into a fresh project: a small
@@ -81,16 +81,21 @@ const CONDITIONS = lines(
 );
 
 const CONTRACTS = lines(
-  "## 5 · Contracts: reads & writes",
+  "## 5 · Contracts: reads, writes & events",
   "",
-  "Drop ABI JSON files (raw arrays or Foundry/Hardhat artifacts) into the",
-  "**Contracts** tab and fill in deployed addresses. **Read** and **Write**",
-  "cells then give you typed forms generated from the ABI. Writes always",
-  "**simulate first**, so revert reasons surface *before* the wallet prompt.",
+  "Open the **Contracts** tab and paste a deployed address — the verified ABI",
+  "is fetched for you (Sourcify/Blockscout out of the box, Etherscan with a",
+  "server key), and proxies resolve to their implementation automatically.",
+  "Prefer files? Drop ABI JSON (raw arrays or Foundry/Hardhat artifacts) and",
+  "fill in addresses by hand.",
   "",
-  "Wrap cells in a **Simulation** group to run them as any caller via",
-  "`eth_call` — and on anvil forks the group can *impersonate* that caller for",
-  "real writes, no private key needed.",
+  "**Read** and **Write** cells then give you typed forms generated from the",
+  "ABI. Writes always **simulate first**, so revert reasons surface *before*",
+  "the wallet prompt. **Events** cells query a contract's logs and decode",
+  "them — the result is a variable like any other. Wrap cells in a",
+  "**Simulation** group to run them as any caller via `eth_call` — and on",
+  "anvil forks the group can *impersonate* that caller for real writes, no",
+  "private key needed.",
   "",
   "The read cell below is waiting for its contract — add one in the Contracts",
   "tab, then pick it here.",
@@ -121,16 +126,43 @@ const OUTRO = lines(
   "  call manifest.",
   "- **State tab** — pin view functions per contract into a live dashboard,",
   "  fetched in one multicall and refreshed on demand.",
+  "- **History & saved runs** — every save is versioned (the clock icon in",
+  "  the toolbar diffs and restores), and finished runs can be saved and",
+  "  reopened from the sidebar, outputs included.",
   "- **Simulate all** — dry-run the entire notebook as any address via",
   "  `eth_call`; nothing is sent on-chain.",
   "- **Shortcuts** — `B` adds a block, `M` adds text, `Shift+Enter` runs the",
   "  selected cell, `Cmd+Enter` runs while editing; double-click any cell to",
   "  edit it.",
   "",
-  "That's the tour. Delete this notebook from the sidebar whenever you're",
-  "ready — and if the team should see your work, flip on team mode (see the",
-  "README) and invite them by wallet address.",
+  "That's the tour. Delete this notebook (or this whole example project) from",
+  "the sidebar whenever you're ready. To bring the team in, use the project's",
+  "**Share** button or invite wallets from **Settings** — and see **/docs**",
+  "for the full guide, self-hosting included.",
 );
+
+/**
+ * First-boot example: a ready-made project against a public mainnet RPC, so
+ * a fresh instance has a runnable tour before anyone creates anything. The
+ * tutorial content is chain-agnostic; mainnet just makes every cell return
+ * something interesting with zero setup. Owners can delete it like any
+ * project. Called once per database from the boot bootstrap (see db/index).
+ */
+export async function seedExampleProject(): Promise<void> {
+  const projectId = crypto.randomUUID();
+  await db.insert(schema.projects).values({
+    id: projectId,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    name: "Example — Ethereum mainnet",
+    description:
+      "A runnable tour against a public RPC — open the Welcome notebook and hit Run all. Safe to delete.",
+    chainId: 1,
+    rpcUrl: "https://ethereum-rpc.publicnode.com",
+    explorerUrl: "https://etherscan.io",
+    createdAt: new Date(),
+  });
+  await seedTutorialContent(projectId);
+}
 
 export async function seedTutorialContent(projectId: string): Promise<void> {
   const now = new Date();

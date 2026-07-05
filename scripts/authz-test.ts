@@ -18,6 +18,8 @@ process.env.CHAINSTITCH_DB_PATH = path.join(
 );
 process.env.APP_MODE = "team";
 process.env.BETTER_AUTH_SECRET = "authz-test-secret";
+// Assertions below count projects — keep the first-boot example out.
+process.env.CHAINSTITCH_SKIP_EXAMPLE_SEED = "1";
 
 let passed = 0;
 let failed = 0;

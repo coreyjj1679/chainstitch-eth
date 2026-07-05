@@ -189,13 +189,15 @@ export default function DocsPage() {
           <Section id="quick-start" title="Quick start">
             <Pre>{"npm install\nnpm run dev"}</Pre>
             <p>
-              Open <Code>http://localhost:3000</Code> and create a project —
-              there&apos;s an Anvil preset for local chains, or point it at any
-              RPC. The SQLite database creates and migrates itself; there is no
-              other setup. Every new project seeds a{" "}
-              <strong>Welcome notebook</strong>: a runnable tour of blocks,
-              variables, conditions and recipes that works against any RPC with
-              no contracts and no wallet. Delete it when you&apos;re done.
+              Open <Code>http://localhost:3000</Code> — a fresh instance boots
+              with an <strong>Example project</strong> (Ethereum mainnet via a
+              public RPC) whose <strong>Welcome notebook</strong> is a runnable
+              tour of blocks, variables, conditions and recipes: open it and
+              hit <em>Run all</em>, no contracts and no wallet needed. The
+              SQLite database creates and migrates itself; there is no other
+              setup. Every project you create seeds the same tour against its
+              own RPC — there&apos;s an Anvil preset for local chains, or point
+              it at any endpoint. Delete the example when you&apos;re done.
             </p>
             <p>
               A wallet is only needed for <strong>write</strong> blocks.

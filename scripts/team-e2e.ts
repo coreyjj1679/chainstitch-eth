@@ -114,6 +114,8 @@ async function main() {
     env: {
       ...process.env,
       CHAINSTITCH_DB_PATH: path.join(dir, "e2e.db"),
+      // Assertions count projects — keep the first-boot example out.
+      CHAINSTITCH_SKIP_EXAMPLE_SEED: "1",
       // A developer's `next dev` may already be running in this checkout;
       // use an isolated build dir so the two don't fight over .next.
       // (Must be inside the project, hence not the temp dir.)

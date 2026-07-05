@@ -256,3 +256,32 @@ sqlite
 
 export const db = drizzle(sqlite, { schema });
 export { schema };
+
+// First-boot example: seed one runnable tour project (public mainnet RPC)
+// into an empty instance, so there is something to open before anyone
+// creates a project. The app_meta claim is atomic, so parallel Next.js
+// workers can't double-seed; databases that already hold projects are left
+// alone, and the marker stops re-seeding after the example is deleted.
+// Tests opt out — their assertions count projects.
+sqlite.exec(
+  "CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+);
+if (process.env.CHAINSTITCH_SKIP_EXAMPLE_SEED !== "1") {
+  const { c: projectCount } = sqlite
+    .prepare("SELECT COUNT(*) AS c FROM projects")
+    .get() as { c: number };
+  const claimed =
+    projectCount === 0 &&
+    sqlite
+      .prepare(
+        "INSERT OR IGNORE INTO app_meta (key, value) VALUES ('example_seeded', '1')",
+      )
+      .run().changes === 1;
+  if (claimed) {
+    // Dynamic import: tutorial.ts imports this module, so a static import
+    // would be circular. By the time the promise runs, our exports exist.
+    void import("@/server/dal/tutorial")
+      .then((m) => m.seedExampleProject())
+      .catch((error) => console.error("Example project seeding failed:", error));
+  }
+}
