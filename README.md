@@ -403,9 +403,18 @@ fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile
 swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
 
-  Runtime is modest — a 1 GB box runs Chainstitch fine once built. To skip
-  on-box builds entirely, build elsewhere and ship the image:
-  `docker buildx build --platform linux/amd64 -t chainstitch . && docker save chainstitch | gzip | ssh you@vps 'gunzip | docker load'`.
+  Runtime is modest — a 1 GB box runs Chainstitch fine once built. On
+  anything smaller (512 MB), skip on-box builds entirely: build elsewhere,
+  ship the image, and run it via the `docker-compose.image.yml` override:
+
+```bash
+# on your workstation, in the repo
+docker buildx build --platform linux/amd64 -t chainstitch:latest --load .
+docker save chainstitch:latest | gzip | ssh you@vps 'gunzip | docker load'
+# on the VPS
+docker compose -f docker-compose.yml -f docker-compose.tls.yml \
+  -f docker-compose.image.yml up -d --no-build
+```
 - Never expose a `local`-mode instance to the internet; it has no auth by
   design. Use `team` mode for anything reachable by others.
 - Removing a member locks them out immediately; they can't sign back in unless

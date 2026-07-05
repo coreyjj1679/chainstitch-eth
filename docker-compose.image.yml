@@ -1,0 +1,14 @@
+# Run a pre-built image instead of building on this machine — for small
+# hosts (≤ 1 GB RAM) where `npm ci` / `next build` can't complete. Build the
+# image elsewhere and ship it (see README → Self-hosting → Production notes):
+#
+#   # on your workstation, in the repo
+#   docker buildx build --platform linux/amd64 -t chainstitch:latest --load .
+#   docker save chainstitch:latest | gzip | ssh you@vps 'gunzip | docker load'
+#
+#   # on the VPS (--no-build makes compose use the loaded image as-is)
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml \
+#     -f docker-compose.image.yml up -d --no-build
+services:
+  chainstitch:
+    image: chainstitch:latest
