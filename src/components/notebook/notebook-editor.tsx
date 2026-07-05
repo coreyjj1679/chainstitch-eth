@@ -28,6 +28,7 @@ import {
   Eye,
   FlaskConical,
   GitBranch,
+  History,
   Info,
   ListRestart,
   Pencil,
@@ -67,6 +68,7 @@ import { RecipeBlock } from "@/components/notebook/recipe-block";
 import { CodePanel } from "@/components/notebook/code-panel";
 import { ImportTestDialog } from "@/components/notebook/import-test-dialog";
 import { SaveRecipeDialog } from "@/components/notebook/recipe-dialogs";
+import { VersionHistoryDialog } from "@/components/notebook/version-history-dialog";
 import type {
   BlockResult,
   BlockType,
@@ -80,6 +82,7 @@ import type {
   Recipe,
   RecipeBlockConfig,
   RpcConfig,
+  SavedRunRecord,
   SenderConfig,
   VariableConfig,
 } from "@/lib/types";
@@ -140,6 +143,10 @@ const BLOCK_TYPES: Array<{
     icon: BookMarked,
   },
 ];
+
+const isRunnableType = (t: BlockType) => t === "read" || t === "write" || t === "rpc";
+const isExecutableType = (t: BlockType) =>
+  isRunnableType(t) || t === "if" || t === "recipe";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -325,6 +332,7 @@ export function NotebookEditor({
   const [recipeSaveOpen, setRecipeSaveOpen] = useState(false);
   const [recipeAnchorId, setRecipeAnchorId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const { data: notebook, isLoading: notebookLoading } = useQuery({
     queryKey: ["notebook", docId],
@@ -949,6 +957,42 @@ export function NotebookEditor({
     [account, senderScopeFor, runOne],
   );
 
+  /**
+   * Persist the finished Run-all pass as an immutable run record: every
+   * executable block in order, with its label frozen at run time and its
+   * result (null when the run stopped before reaching it). The record shows
+   * up in the sidebar's "Saved runs" group and opens in its own tab.
+   */
+  const saveRunRecord = useCallback(
+    async (simulated: boolean) => {
+      const s = useNotebookStore.getState();
+      const entries = executionOrder(s.blocks)
+        .filter((b) => isExecutableType(b.type))
+        .map((b) => ({
+          blockId: b.id,
+          type: b.type,
+          label: blockLabel(b, contracts, recipes),
+          result: s.results[b.id] ?? null,
+        }));
+      if (entries.length === 0) return;
+      const statusCount = (status: string) =>
+        entries.filter((e) => e.result?.status === status).length;
+      try {
+        await api.notebooks.saveRun(docId, {
+          state: stringifyBigIntSafe({ entries } satisfies SavedRunRecord),
+          simulated,
+          succeeded: statusCount("success"),
+          failed: statusCount("error"),
+          skipped: statusCount("skipped"),
+        });
+        queryClient.invalidateQueries({ queryKey: ["runs", project.id] });
+      } catch (e) {
+        toast.error(`Saving the run output failed: ${shortError(e)}`);
+      }
+    },
+    [contracts, recipes, docId, project.id, queryClient],
+  );
+
   /** Runs every block in execution order. With `simulateAs`, writes are
    *  eth_call'd (no wallet, nothing sent); sender groups override the caller.
    *  Condition groups gate their children: false skips them, errors stop. */
@@ -1011,6 +1055,8 @@ export function NotebookEditor({
         }
       }
       if (failed) toast.error("Run stopped: a block failed");
+      // Recipe test runs are session-only; viewers can't persist anything.
+      if (!isRecipeDoc && !readOnly) await saveRunRecord(!!simulateAs);
       setRunning(false);
     },
     [
@@ -1021,6 +1067,9 @@ export function NotebookEditor({
       markChildrenSkipped,
       checkRunWhen,
       skipUnconfigured,
+      saveRunRecord,
+      isRecipeDoc,
+      readOnly,
     ],
   );
 
@@ -1190,9 +1239,6 @@ export function NotebookEditor({
     );
   }
 
-  const isRunnableType = (t: BlockType) => t === "read" || t === "write" || t === "rpc";
-  const isExecutableType = (t: BlockType) =>
-    isRunnableType(t) || t === "if" || t === "recipe";
   const runnableBlocks = blocks.filter((b) => isExecutableType(b.type));
   const runnableCount = runnableBlocks.length;
   const allExpanded =
@@ -1562,6 +1608,17 @@ export function NotebookEditor({
         >
           <Download />
         </Button>
+        {!isRecipeDoc && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setHistoryOpen(true)}
+            aria-label="Version history"
+            title="Version history: browse past versions, see what changed, restore"
+          >
+            <History />
+          </Button>
+        )}
         {!readOnly && !isRecipeDoc && (
           <Button
             variant="ghost"
@@ -1678,6 +1735,26 @@ export function NotebookEditor({
           projectId={project.id}
           contracts={contracts}
           initialSelectedId={recipeAnchorId}
+        />
+      )}
+
+      {!isRecipeDoc && (
+        <VersionHistoryDialog
+          open={historyOpen}
+          onOpenChange={setHistoryOpen}
+          notebookId={docId}
+          contracts={contracts}
+          recipes={recipes}
+          readOnly={readOnly}
+          onRestored={(restored) => {
+            // Swap the editor to the restored content in place: re-seed the
+            // store and the meta fields, and refresh the cached queries.
+            initialize(restored.id, restored.blocks, "notebook");
+            setTitle(restored.title);
+            setDescription(restored.description ?? "");
+            queryClient.setQueryData(["notebook", docId], restored);
+            queryClient.invalidateQueries({ queryKey: ["notebooks", project.id] });
+          }}
         />
       )}
 

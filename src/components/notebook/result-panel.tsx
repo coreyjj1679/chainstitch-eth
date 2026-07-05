@@ -47,8 +47,9 @@ function flattenDetails(record: Record<string, unknown>): DetailRow[] {
 /**
  * Key/value grid where every row — nested or not — uses the same label
  * column width and baseline, so the two columns stay vertically aligned.
+ * Also used by the saved-run viewer.
  */
-function DetailsGrid({ record }: { record: Record<string, unknown> }) {
+export function DetailsGrid({ record }: { record: Record<string, unknown> }) {
   const rows = flattenDetails(record);
   if (rows.length === 0) {
     return <p className="text-[11px] text-muted-foreground/60">Nothing to show.</p>;

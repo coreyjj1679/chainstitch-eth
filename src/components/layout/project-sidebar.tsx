@@ -19,13 +19,20 @@ import {
   Pencil,
   Plus,
   Radio,
+  SquarePlay,
   Trash2,
   UserRound,
   Variable,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { useContracts, useNotebooks, useProject, useRecipes } from "@/lib/hooks";
+import {
+  useContracts,
+  useNotebooks,
+  useProject,
+  useRecipes,
+  useRuns,
+} from "@/lib/hooks";
 import { duplicateNotebook } from "@/lib/duplicate-notebook";
 import { blockLabel, executionOrder } from "@/lib/block-label";
 import { displayValue } from "@/lib/serialize";
@@ -33,7 +40,7 @@ import { confirmLosingRecipeEdits, useNotebookStore } from "@/stores/notebook-st
 import { CreateNotebookDialog } from "@/components/layout/create-notebook-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { cn, timeAgo } from "@/lib/utils";
 import type { BlockType } from "@/lib/types";
 
 const BLOCK_ICONS: Record<BlockType, typeof Eye> = {
@@ -422,6 +429,114 @@ function VariablesPanel() {
   );
 }
 
+/**
+ * Saved "Run all" outputs, pinned as the sidebar's bottom group. Each entry
+ * is an immutable run record that opens in its own document tab.
+ */
+function SavedRunsSection({
+  projectId,
+  canEdit,
+}: {
+  projectId: string;
+  canEdit: boolean;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const { data: runs } = useRuns(projectId);
+  const base = `/p/${projectId}`;
+
+  const removeRun = useMutation({
+    mutationFn: (runId: string) => api.runs.remove(runId),
+    onSuccess: (_data, runId) => {
+      queryClient.invalidateQueries({ queryKey: ["runs", projectId] });
+      if (pathname === `${base}/runs/${runId}`) router.push(base);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <SidebarSection
+      id="runs"
+      label="Saved runs"
+      className="shrink-0 border-t px-3 pt-3 pb-1"
+    >
+      <nav className="-mx-1 mt-1 max-h-[22vh] overflow-y-auto pb-1">
+        {runs && runs.length > 0 ? (
+          <div className="grid gap-0.5">
+            {runs.map((run) => {
+              const href = `${base}/runs/${run.id}`;
+              const active = pathname === href;
+              return (
+                <Link
+                  key={run.id}
+                  href={href}
+                  onClick={(e) => {
+                    if (!confirmLosingRecipeEdits()) e.preventDefault();
+                  }}
+                  title={[
+                    `${run.notebookTitle} — ${new Date(run.createdAt).toLocaleString()}`,
+                    run.ranByName ? `ran by ${run.ranByName}` : null,
+                    `${run.succeeded} succeeded, ${run.failed} failed, ${run.skipped} skipped`,
+                    run.simulated ? "simulated" : null,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
+                  className={cn(
+                    "group/link relative flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
+                    active
+                      ? "bg-muted font-medium text-foreground before:absolute before:inset-y-1 before:-left-1 before:w-0.5 before:rounded-full before:bg-primary"
+                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                  )}
+                >
+                  <SquarePlay
+                    className={cn(
+                      "size-3.5 shrink-0",
+                      run.failed > 0 ? "text-red-400/80" : "text-emerald-400/80",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{run.notebookTitle}</span>
+                  {run.simulated && (
+                    <span className="shrink-0 rounded border border-teal-400/30 bg-teal-400/10 px-1 font-mono text-[10px] text-teal-400">
+                      sim
+                    </span>
+                  )}
+                  <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">
+                    {timeAgo(run.createdAt)}
+                  </span>
+                  {canEdit && (
+                    <span className="hidden shrink-0 items-center group-hover/link:flex">
+                      <button
+                        className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                        aria-label="Delete saved run"
+                        title="Delete this saved run"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (confirm("Delete this saved run output?")) {
+                            removeRun.mutate(run.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="size-3" />
+                      </button>
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="px-2 py-2 text-xs text-muted-foreground/70">
+            No saved runs yet. &ldquo;Run all&rdquo; in a notebook saves its
+            output here.
+          </p>
+        )}
+      </nav>
+    </SidebarSection>
+  );
+}
+
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
 const WIDTH_STORAGE_KEY = "cn-sidebar-width";
@@ -732,6 +847,9 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
         <BlockToc projectId={projectId} />
         <VariablesPanel />
       </div>
+
+      {/* Saved Run-all outputs, pinned at the bottom */}
+      <SavedRunsSection projectId={projectId} canEdit={canEdit} />
 
       {/* Resize handle */}
       <div

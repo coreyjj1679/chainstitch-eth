@@ -4,15 +4,17 @@ import { useSyncExternalStore } from "react";
 
 /**
  * Browser-style document tabs, per project. Purely a navigation layer:
- * a tab is a pointer to a notebook or recipe route — the editor still
- * loads one document at a time. Persisted in localStorage so the open
+ * a tab is a pointer to a notebook, recipe or saved-run route — the editor
+ * still loads one document at a time. Persisted in localStorage so the open
  * set survives reloads (and syncs across browser tabs via the storage
  * event); the server never knows about it.
  */
 export interface DocTab {
-  kind: "notebook" | "recipe";
+  kind: "notebook" | "recipe" | "run";
   id: string;
 }
+
+const TAB_KINDS: ReadonlyArray<DocTab["kind"]> = ["notebook", "recipe", "run"];
 
 export function sameTab(a: DocTab, b: DocTab): boolean {
   return a.kind === b.kind && a.id === b.id;
@@ -41,7 +43,7 @@ function readTabs(projectId: string): DocTab[] {
         (t): t is DocTab =>
           typeof t === "object" &&
           t !== null &&
-          ((t as DocTab).kind === "notebook" || (t as DocTab).kind === "recipe") &&
+          TAB_KINDS.includes((t as DocTab).kind) &&
           typeof (t as DocTab).id === "string",
       );
     }

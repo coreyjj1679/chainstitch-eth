@@ -17,8 +17,8 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { BookMarked, NotebookPen, X } from "lucide-react";
-import { useNotebooks, useRecipes } from "@/lib/hooks";
+import { BookMarked, NotebookPen, SquarePlay, X } from "lucide-react";
+import { useNotebooks, useRecipes, useRuns } from "@/lib/hooks";
 import {
   closeDocTab,
   openDocTab,
@@ -29,11 +29,18 @@ import {
   type DocTab,
 } from "@/stores/doc-tabs";
 import { confirmLosingRecipeEdits, useNotebookStore } from "@/stores/notebook-store";
-import { cn } from "@/lib/utils";
+import { cn, formatWhen } from "@/lib/utils";
 
 function tabHref(projectId: string, tab: DocTab): string {
+  if (tab.kind === "run") return `/p/${projectId}/runs/${tab.id}`;
   return `/p/${projectId}/${tab.kind === "notebook" ? "n" : "r"}/${tab.id}`;
 }
+
+const TAB_ICONS: Record<DocTab["kind"], typeof NotebookPen> = {
+  notebook: NotebookPen,
+  recipe: BookMarked,
+  run: SquarePlay,
+};
 
 const tabKey = (tab: DocTab) => `${tab.kind}-${tab.id}`;
 
@@ -54,7 +61,7 @@ function TabItem({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: tabKey(tab) });
-  const Icon = tab.kind === "notebook" ? NotebookPen : BookMarked;
+  const Icon = TAB_ICONS[tab.kind];
 
   return (
     <div
@@ -91,7 +98,11 @@ function TabItem({
         className="flex min-w-0 items-center gap-1.5 outline-none"
       >
         <Icon
-          className={cn("size-3 shrink-0", tab.kind === "recipe" && "text-cyan-400/80")}
+          className={cn(
+            "size-3 shrink-0",
+            tab.kind === "recipe" && "text-cyan-400/80",
+            tab.kind === "run" && "text-emerald-400/80",
+          )}
         />
         <span className="min-w-0 truncate">{title}</span>
         {dirty && (
@@ -129,6 +140,7 @@ export function DocTabStrip({ projectId }: { projectId: string }) {
   const tabs = useDocTabs(projectId);
   const { data: notebooks } = useNotebooks(projectId);
   const { data: recipes } = useRecipes(projectId);
+  const { data: runs } = useRuns(projectId);
   // The one document with meaningful unsaved state: a dirty recipe.
   const dirtyRecipeId = useNotebookStore((s) =>
     s.docKind === "recipe" && s.dirty ? s.notebookId : null,
@@ -143,7 +155,9 @@ export function DocTabStrip({ projectId }: { projectId: string }) {
     ? { kind: "notebook", id: pathname.slice(`${base}/n/`.length) }
     : pathname.startsWith(`${base}/r/`)
       ? { kind: "recipe", id: pathname.slice(`${base}/r/`.length) }
-      : null;
+      : pathname.startsWith(`${base}/runs/`)
+        ? { kind: "run", id: pathname.slice(`${base}/runs/`.length) }
+        : null;
 
   // Visiting a document opens its tab.
   useEffect(() => {
@@ -151,22 +165,30 @@ export function DocTabStrip({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by route, not object identity
   }, [projectId, active?.kind, active?.id]);
 
-  // Deleted documents lose their tabs (once both lists have loaded).
+  // Deleted documents lose their tabs (once all lists have loaded).
   useEffect(() => {
-    if (!notebooks || !recipes) return;
+    if (!notebooks || !recipes || !runs) return;
     pruneDocTabs(projectId, (tab) =>
       tab.kind === "notebook"
         ? notebooks.some((n) => n.id === tab.id)
-        : recipes.some((r) => r.id === tab.id),
+        : tab.kind === "recipe"
+          ? recipes.some((r) => r.id === tab.id)
+          : runs.some((r) => r.id === tab.id),
     );
-  }, [projectId, notebooks, recipes]);
+  }, [projectId, notebooks, recipes, runs]);
 
   if (tabs.length === 0) return null;
 
-  const label = (tab: DocTab): string =>
-    (tab.kind === "notebook"
-      ? notebooks?.find((n) => n.id === tab.id)?.title
-      : recipes?.find((r) => r.id === tab.id)?.name) ?? "…";
+  const label = (tab: DocTab): string => {
+    if (tab.kind === "notebook") {
+      return notebooks?.find((n) => n.id === tab.id)?.title ?? "…";
+    }
+    if (tab.kind === "recipe") {
+      return recipes?.find((r) => r.id === tab.id)?.name ?? "…";
+    }
+    const run = runs?.find((r) => r.id === tab.id);
+    return run ? `${run.notebookTitle} · ${formatWhen(run.createdAt)}` : "…";
+  };
 
   function close(tab: DocTab) {
     const isActive = !!active && sameTab(tab, active);
