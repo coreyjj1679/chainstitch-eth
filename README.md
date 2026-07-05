@@ -82,10 +82,14 @@ just ran.
 
 ### Address book
 
-Drag &amp; drop ABI JSON (raw arrays or Foundry/Hardhat artifacts) and fill in
-deployed addresses. Proxies: pair the proxy address with the implementation
-ABI. The same address book feeds every notebook, the codegen, and the State
-tab — one source of truth per project.
+Fetch a verified ABI by pasting an address — Sourcify and Blockscout out of
+the box, Etherscan too with a free `ETHERSCAN_API_KEY` — or drag &amp; drop
+ABI JSON (raw arrays or Foundry/Hardhat artifacts) and fill in deployed
+addresses. Proxies resolve automatically: explorer proxy hints plus an
+EIP-1967 slot read pair the proxy address with the implementation ABI (works
+on anvil forks — pick the fork's source chain in the lookup). The same
+address book feeds every notebook, the codegen, and the State tab — one
+source of truth per project.
 
 <p align="center">
   <img src="screenshots/address-book.png" alt="The address book with Uniswap V3 Factory, the USDC/WETH pool, and a Chainlink feed">
@@ -234,7 +238,7 @@ APP_URL=https://notebook.example.com           # exact URL users visit
 ```
 
 Start the app, sign in with an owner wallet, then invite teammates from
-**Settings** (account menu → Workspace settings) — an invite is just a wallet
+**Settings** (the gear button in the header) — an invite is just a wallet
 address and a role, claimed automatically the first time that wallet signs
 in. The sign-in signature is domain-bound to `APP_URL`, costs nothing, and
 never touches a chain — it's identity only. Roles:
