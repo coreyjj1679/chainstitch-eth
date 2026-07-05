@@ -386,6 +386,11 @@ docker run -d --name chainstitch -p 3000:3000 \
   chainstitch
 ```
 
+The app runs as an unprivileged user (uid 999). If Docker created the
+`data/` directory for you, it's root-owned and the database can't be
+created (`SQLITE_CANTOPEN` in the logs, sign-in fails with a nonce error)
+— fix it once with `chown -R 999:999 data`.
+
 If you keep the variables in a `.env` file (copy `.env.example`), replace the
 `-e` flags with `--env-file .env` — plain `docker run` does **not** read
 `.env` by itself. To apply a rebuild or config change, remove the old

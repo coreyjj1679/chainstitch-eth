@@ -30,7 +30,10 @@ FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 
-RUN groupadd --system nodejs && useradd --system --gid nodejs nextjs \
+# Fixed uid/gid so bind-mount ownership is predictable across rebuilds:
+# if ./data on the host is root-owned (docker created it), fix it with
+# `chown -R 999:999 data` — see README → Self-hosting.
+RUN groupadd --system --gid 999 nodejs && useradd --system --uid 999 --gid nodejs nextjs \
   && mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 # Standalone output bundles the server and the traced node_modules subset
