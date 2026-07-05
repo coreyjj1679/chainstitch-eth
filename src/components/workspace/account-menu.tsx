@@ -22,7 +22,8 @@ function shortAddress(address: string) {
 /**
  * Team-mode session controls: a standalone workspace-settings button next to
  * the account chip (who you are, sign out). Renders nothing in local mode
- * (no accounts to manage).
+ * (no accounts to manage). One flex item, so headers can lay it out as a
+ * single unit (a bare fragment would scatter in justify-between headers).
  */
 export function AccountMenu() {
   const { data: me } = useMe();
@@ -32,7 +33,7 @@ export function AccountMenu() {
   const wallet = me.user.wallets[0];
 
   return (
-    <>
+    <div className="flex items-center gap-2">
       {/* Project-only members can't read the workspace roster (403). */}
       {me.role && (
         <Button
@@ -79,6 +80,6 @@ export function AccountMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </>
+    </div>
   );
 }
