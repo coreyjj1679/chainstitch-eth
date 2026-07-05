@@ -132,33 +132,57 @@ selection via the bookmark dialog's “Save to” picker.
   <br><sub>Recipes open from the sidebar into the same editor as notebooks — tweak steps with the typed forms, test-run in place, then <b>Save</b> to publish to every linked cell.</sub>
 </p>
 
+### AI import — Foundry tests become notebooks
+
+Paste a `.t.sol` test file *(bring your own free Gemini key)* and it converts
+into runnable blocks: `vm.prank` becomes a sender group, `vm.deal`/`vm.warp`
+become anvil cheatcode cells, asserts become condition checks — preview,
+insert, edit. Feed it context for real-world suites: drop the imported
+`.sol` files (base tests, interfaces) and Foundry artifacts
+(`out/**/*.json` — missing contracts are added to the address book on
+insert), pick which test functions to convert, and run the one-request
+pre-flight check to see what's missing before converting. Uses Google AI
+Studio's free tier (~1,500 requests/day, no card); calls go straight from
+your browser to Google, and the key never touches the Chainstitch server.
+
+<p align="center">
+  <img src="screenshots/ai-import-input.png" alt="The AI import dialog with a pasted Foundry fork test, a dropped Vault artifact, the test-function picker and the pre-flight report">
+  <br><sub>A pasted fork test plus a dropped <code>Vault.json</code> artifact; the pre-flight check reports what's covered — two contracts from the address book, one from the artifact — before a conversion is spent.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshots/ai-import-preview.png" alt="The conversion preview: 16 blocks with sender groups and condition checks, warnings, and the importable Vault contract">
+  <br><sub>The preview before inserting: <code>vm.startPrank</code> became a sender group, asserts became <code>if</code> blocks, un-convertible setup surfaced as warnings — and the Vault ABI is added to the address book on insert.</sub>
+</p>
+
+### Version history & saved runs
+
+Notebooks keep a Google-Docs-style edit history: every save is recorded
+automatically (consecutive edits by the same editor group into one version),
+with editor names, a block-level diff against the previous version, and
+one-click restore — restoring appends a new version, so nothing is ever
+lost. And every **Run all** / **Simulate all** pass stores its full output
+as an immutable record in the sidebar's **Saved runs** group; each opens in
+its own tab showing exactly what every block returned at the time, even
+after the notebook changes.
+
+<p align="center">
+  <img src="screenshots/version-history.png" alt="The version history dialog: versions with editors on the left, a block-level diff (added, removed and changed blocks) on the right, and a Restore button">
+  <br><sub>Version history: editing sessions on the left; the selected version's diff — added, removed and changed blocks with old → new values — plus one-click <b>Restore</b>.</sub>
+</p>
+
+<p align="center">
+  <img src="screenshots/run-tab.png" alt="A saved run opened in its own tab: the frozen output of every block from a Run-all pass, with the Saved runs sidebar group at the bottom left">
+  <br><sub>A saved run in its own tab — the frozen <code>Out [n]</code> of every block from that pass. The <b>Saved runs</b> group sits at the bottom of the sidebar.</sub>
+</p>
+
 ### And more
 
-- **AI import** *(bring your own key)* — paste a Foundry `.t.sol` test file
-  and it converts into runnable blocks: `vm.prank` becomes a sender group,
-  `vm.deal`/`vm.warp` become anvil cheatcode cells, asserts become condition
-  checks — preview, insert, edit. Feed it context for real-world suites:
-  drop the imported `.sol` files (base tests, interfaces) and Foundry
-  artifacts (`out/**/*.json` — missing contracts are added to the address
-  book on insert), pick which test functions to convert, and run the
-  one-request pre-flight check to see what's missing before converting.
-  Uses Google AI Studio's free tier (~1,500 requests/day, no card); calls go
-  straight from your browser to Google, and the key never touches the
-  Chainstitch server.
-- **Document tabs & project overview** — notebooks and recipes open in
-  browser-style tabs above the editor: switch with a click, close with the ✕
-  or a middle-click, drag to reorder, and the open set persists per project
-  in your browser. Each project's **Overview** page is the explorer for its
-  notebooks, recipes, contracts and state dashboard.
-- **Version history** — notebooks keep a Google-Docs-style edit history:
-  every save is recorded automatically (consecutive edits by the same editor
-  group into one version), with editor names, a block-level diff against the
-  previous version, and one-click restore. Restoring appends a new version,
-  so nothing is ever lost.
-- **Saved runs** — every "Run all" / "Simulate all" pass stores its full
-  output as an immutable record. Browse them in the sidebar's **Saved runs**
-  group (pinned at the bottom); each opens in its own tab showing exactly
-  what every block returned at the time, even after the notebook changes.
+- **Document tabs & project overview** — notebooks, recipes and saved runs
+  open in browser-style tabs above the editor: switch with a click, close
+  with the ✕ or a middle-click, drag to reorder, and the open set persists
+  per project in your browser. Each project's **Overview** page is the
+  explorer for its notebooks, recipes, contracts and state dashboard.
 - **In-app docs** — `/docs` walks through usage, anvil workflows and
   self-hosting, right inside the app (public on team-mode instances).
 - **Write blocks simulate first** — revert reasons surface *before* the wallet

@@ -12,9 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Alternate dist dirs (e2e test harness, build checks alongside a dev server)
+    // Alternate dist dirs (e2e test harness, build checks alongside a dev
+    // server, the screenshot capture rig)
     ".next-e2e/**",
     ".next-build/**",
+    ".next-capture/**",
   ]),
 ]);
 
