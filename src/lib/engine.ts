@@ -4,8 +4,10 @@ import {
   numberToHex,
   type Abi,
   type AbiFunction,
+  type Account,
   type BlockTag,
   type PublicClient,
+  type WalletClient,
 } from "viem";
 import type { Config } from "wagmi";
 import {
@@ -38,6 +40,13 @@ export interface RunContext {
   sender?: `0x${string}`;
   /** Execute writes as `sender` via anvil_impersonateAccount (local forks) */
   impersonate?: boolean;
+  /**
+   * Session-only local key signer (beta): when set, write blocks are signed
+   * and broadcast with this wallet client instead of prompting a browser
+   * wallet — the basis for unattended batch runs. Overridden by `simulate`
+   * mode and by impersonation (both take precedence).
+   */
+  localSigner?: { account: Account; walletClient: WalletClient };
 }
 
 export interface RunOutcome {
@@ -341,6 +350,36 @@ async function runWrite(block: NotebookBlock, ctx: RunContext): Promise<RunOutco
       txHash,
       kind: "Write (impersonated via anvil)",
       sender: ctx.sender,
+      blockNumber: receipt.blockNumber,
+      details: baseDetails,
+      txDetails: receiptDetails(txHash, receipt),
+      events: decodeReceiptLogs(receipt.logs, ctx.contracts),
+    };
+  }
+
+  // Local key signer (beta): sign & broadcast with a session-only private key,
+  // no wallet prompt — the basis for unattended batch runs on chains without
+  // anvil impersonation (real testnets/mainnet).
+  if (ctx.localSigner) {
+    const { account, walletClient } = ctx.localSigner;
+    // Simulate first so revert reasons surface (and gas/nonce are prepared).
+    const { request } = await ctx.publicClient.simulateContract({
+      address: contract.address as `0x${string}`,
+      abi: contract.abi,
+      functionName: config.functionName,
+      args,
+      account,
+      ...(value !== undefined ? { value } : {}),
+    });
+    const txHash = await walletClient.writeContract(
+      request as Parameters<WalletClient["writeContract"]>[0],
+    );
+    const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash: txHash });
+    return {
+      value: receipt,
+      txHash,
+      kind: "Write (local key signer)",
+      sender: account.address,
       blockNumber: receipt.blockNumber,
       details: baseDetails,
       txDetails: receiptDetails(txHash, receipt),
