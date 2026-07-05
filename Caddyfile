@@ -1,0 +1,5 @@
+# TLS for a team-mode instance (used by docker-compose.tls.yml).
+# Set APP_DOMAIN in .env — Caddy provisions the Let's Encrypt cert itself.
+{$APP_DOMAIN} {
+	reverse_proxy chainstitch:3000
+}
