@@ -112,9 +112,11 @@ cell** that reruns every step in one click, or pasted as editable blocks
 (a linked cell can be “detached” into blocks later). Steps keep full notebook
 semantics: they read and write `{{variables}}`, `if` groups and “run when”
 guards skip what shouldn't run, and sender groups pick the caller. Recipes
-stay editable: reorder or remove steps from the Recipes tab, or overwrite one
-with a fresh selection via the bookmark dialog's “Save to” picker — linked
-cells follow automatically.
+live in the sidebar right below your notebooks and **open in the same
+editor**: tweak steps with the full typed forms, test-run them in place, then
+hit Save — edits publish explicitly, and every linked cell follows. You can
+also start a recipe from scratch there, or overwrite one with a fresh
+selection via the bookmark dialog's “Save to” picker.
 
 <p align="center">
   <img src="screenshots/recipe-cell.png" alt="A recipe cell inside a sender group after two runs — the Steps tab shows the allowance read, the resolved if-condition and the skipped approve">
@@ -122,12 +124,26 @@ cells follow automatically.
 </p>
 
 <p align="center">
-  <img src="screenshots/recipes-tab.png" alt="The Recipes tab listing saved recipes with their step lists">
-  <br><sub>The Recipes tab is the project's library of saved flows — rename, describe, delete; every notebook's add-block menu offers them.</sub>
+  <img src="screenshots/recipes-tab.png" alt="The project's recipe library with saved recipes and their step lists">
+  <br><sub>Recipes are the project's library of saved flows — open one from the sidebar to edit and test it like a notebook; every notebook's add-block menu offers them.</sub>
 </p>
 
 ### And more
 
+- **AI import** *(bring your own key)* — paste a Foundry `.t.sol` test file
+  and it converts into runnable blocks: `vm.prank` becomes a sender group,
+  `vm.deal`/`vm.warp` become anvil cheatcode cells, asserts become condition
+  checks — preview, insert, edit. Feed it context for real-world suites:
+  drop the imported `.sol` files (base tests, interfaces) and Foundry
+  artifacts (`out/**/*.json` — missing contracts are added to the address
+  book on insert), pick which test functions to convert, and run the
+  one-request pre-flight check to see what's missing before converting.
+  Uses Google AI Studio's free tier (~1,500 requests/day, no card); calls go
+  straight from your browser to Google, and the key never touches the
+  Chainstitch server.
+- **Document tabs** — notebooks and recipes open in browser-style tabs above
+  the editor: switch with a click, close with the ✕ or a middle-click, drag
+  to reorder, and the open set persists per project in your browser.
 - **Write blocks simulate first** — revert reasons surface *before* the wallet
   prompt — then send and await the receipt.
 - **Simulate as anyone** — dry-run entire notebooks as any address via
@@ -299,6 +315,11 @@ browser wallets work without it.
 - Put a reverse proxy (Caddy, nginx, Traefik) in front for TLS — sessions are
   httpOnly cookies (marked `Secure` over HTTPS) and SIWE messages are
   domain-bound to `APP_URL`, which must be the exact URL users visit.
+- Signed-out visitors on a team-mode instance see a landing page at `/`
+  (app routes stay login-gated). Optional env vars wire its buttons:
+  `DEMO_SHARE_URL` (a project's "anyone with the link" URL for the
+  Try-the-demo button) and `GITHUB_URL` — both read at request time, no
+  rebuild needed.
 - Never expose a `local`-mode instance to the internet; it has no auth by
   design. Use `team` mode for anything reachable by others.
 - Removing a member locks them out immediately; they can't sign back in unless
