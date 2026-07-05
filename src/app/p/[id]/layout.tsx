@@ -10,9 +10,8 @@ import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import { ProjectSettingsDialog } from "@/components/layout/project-settings-dialog";
 import { AccountMenu } from "@/components/workspace/account-menu";
 import { ShareProjectDialog } from "@/components/workspace/share-dialog";
-import { GithubLink } from "@/components/github-link";
+import { ChainBadge } from "@/components/chains/chain-badge";
 import { Logo } from "@/components/logo";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export default function ProjectLayout({
@@ -52,9 +51,7 @@ export default function ProjectLayout({
                 {project.name}
               </span>
             )}
-            <Badge variant="secondary" className="font-mono text-xs">
-              chain {project.chainId}
-            </Badge>
+            <ChainBadge chainId={project.chainId} />
             {project.description && (
               <span
                 className="hidden max-w-64 truncate text-xs text-muted-foreground/70 lg:inline"
@@ -66,7 +63,6 @@ export default function ProjectLayout({
             <div className="ml-auto flex items-center gap-2">
               <ShareProjectDialog project={project} />
               <WalletButton />
-              <GithubLink className="hidden sm:inline-flex" />
               <AccountMenu />
             </div>
           </div>

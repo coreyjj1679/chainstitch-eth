@@ -4,12 +4,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowRight,
   ChevronRight,
-  Code2,
-  FileJson,
   Hammer,
-  Play,
   Plus,
   SlidersHorizontal,
   Trash2,
@@ -17,10 +13,12 @@ import {
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useMe, useProjects } from "@/lib/hooks";
+import { GITHUB_URL } from "@/lib/site";
 import { AccountMenu } from "@/components/workspace/account-menu";
-import { GithubLink } from "@/components/github-link";
+import { GithubIcon } from "@/components/github-link";
 import { Logo, LogoMark } from "@/components/logo";
 import { ChainIcon } from "@/components/chains/chain-icon";
+import { ChainBadge } from "@/components/chains/chain-badge";
 import {
   CUSTOM_VALUE,
   DEFAULT_CHAIN_VALUE,
@@ -228,16 +226,6 @@ export function ProjectsHome() {
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-8 py-3">
           <Logo size={24} />
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-              nativeButton={false}
-              render={<Link href="/docs" />}
-            >
-              Docs
-            </Button>
-            <GithubLink />
             <AccountMenu />
             {isOwner && <CreateProjectDialog trigger={<Button size="sm" />} />}
           </div>
@@ -289,9 +277,7 @@ export function ProjectsHome() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium">{p.name}</span>
-                    <Badge variant="secondary" className="shrink-0 font-mono text-xs">
-                      chain {p.chainId}
-                    </Badge>
+                    <ChainBadge chainId={p.chainId} className="shrink-0" />
                   </div>
                   <p className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
                     {p.rpcUrl}
@@ -334,66 +320,83 @@ export function ProjectsHome() {
           <h2 className="mb-4 text-sm font-medium tracking-wide text-muted-foreground uppercase">
             How it works
           </h2>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-xl border bg-card/40 p-4">
-              <div className="mb-3 flex size-8 items-center justify-center rounded-lg border bg-sky-400/10 text-sky-400">
-                <FileJson className="size-4" />
-              </div>
-              <p className="mb-1 text-sm font-medium">1 · Connect a chain</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Set the chain id and RPC — Anvil preset included for local
-                forks — then drag &amp; drop your ABI JSONs and fill in the
-                deployed addresses.
-              </p>
+          <div className="overflow-hidden rounded-xl border">
+            <div className="grid divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              {[
+                {
+                  step: "01",
+                  title: "Connect a chain",
+                  body: (
+                    <>
+                      Point a project at any RPC — Anvil preset included — then
+                      fetch verified ABIs by address or drop in your artifacts.
+                    </>
+                  ),
+                },
+                {
+                  step: "02",
+                  title: "Compose & run",
+                  body: (
+                    <>
+                      Chain read, write and RPC blocks like Jupyter cells — every
+                      output becomes a{" "}
+                      <code className="rounded bg-muted px-1 font-mono">
+                        {"{{variable}}"}
+                      </code>{" "}
+                      for the next call, and writes simulate before they send.
+                    </>
+                  ),
+                },
+                {
+                  step: "03",
+                  title: "Hand off the code",
+                  body: (
+                    <>
+                      Flip any block into its wagmi, viem, Python, Rust or
+                      Solidity source, or export the whole flow as a JSON
+                      manifest.
+                    </>
+                  ),
+                },
+              ].map((s) => (
+                <div key={s.step} className="bg-card/30 p-5">
+                  <span className="font-mono text-xs font-medium text-primary">
+                    {s.step}
+                  </span>
+                  <p className="mt-2 mb-1.5 text-sm font-medium">{s.title}</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {s.body}
+                  </p>
+                </div>
+              ))}
             </div>
-            <div className="rounded-xl border bg-card/40 p-4">
-              <div className="mb-3 flex size-8 items-center justify-center rounded-lg border bg-emerald-400/10 text-emerald-400">
-                <Play className="size-4" />
-              </div>
-              <p className="mb-1 text-sm font-medium">2 · Compose &amp; run</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Add read, write and RPC blocks like Jupyter cells. Save any
-                result as a variable and feed it into the next call with{" "}
-                <code className="rounded bg-muted px-1 font-mono">
-                  {"{{variable}}"}
-                </code>
-                .
-              </p>
+            <div className="border-t bg-card/50 px-5 py-2.5 text-xs text-muted-foreground/70">
+              Runs against anvil forks and cheatcodes · everything is autosaved ·
+              nothing leaves your machine in local mode
             </div>
-            <div className="rounded-xl border bg-card/40 p-4">
-              <div className="mb-3 flex size-8 items-center justify-center rounded-lg border bg-violet-400/10 text-violet-400">
-                <Code2 className="size-4" />
-              </div>
-              <p className="mb-1 text-sm font-medium">3 · Hand off the code</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Every block generates its wagmi/viem snippet. Frontend devs copy
-                the source or export the whole flow as a JSON manifest.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground/70">
-            <span className="flex items-center gap-1.5">
-              <ArrowRight className="size-3" /> Jupyter-style execution with
-              chained variables
-            </span>
-            <span className="flex items-center gap-1.5">
-              <ArrowRight className="size-3" /> Simulate-before-write surfaces
-              revert reasons early
-            </span>
-            <span className="flex items-center gap-1.5">
-              <ArrowRight className="size-3" /> Works against anvil forks and
-              cheatcodes
-            </span>
           </div>
         </div>
       </main>
 
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-8 py-3 text-xs text-muted-foreground/60">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-2 px-8 py-3 text-xs text-muted-foreground/60">
           <span>Smart contract collaboration tools.</span>
-          <span className="font-mono">
-            {me?.mode === "team" ? "team" : "local"} · sqlite
+          <span className="flex items-center gap-4">
+            <Link href="/docs" className="transition-colors hover:text-foreground">
+              Docs
+            </Link>
+            <a
+              href={GITHUB_URL}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+            >
+              <GithubIcon className="size-3.5" />
+              GitHub
+            </a>
+            <span className="font-mono">
+              {me?.mode === "team" ? "team" : "local"} · sqlite
+            </span>
           </span>
         </div>
       </footer>
