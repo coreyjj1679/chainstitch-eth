@@ -14,6 +14,7 @@ import {
   Eye,
   FileJson,
   GitBranch,
+  LayoutGrid,
   NotebookPen,
   Pencil,
   Plus,
@@ -25,6 +26,7 @@ import {
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useContracts, useNotebooks, useProject, useRecipes } from "@/lib/hooks";
+import { duplicateNotebook } from "@/lib/duplicate-notebook";
 import { blockLabel, executionOrder } from "@/lib/block-label";
 import { displayValue } from "@/lib/serialize";
 import { confirmLosingRecipeEdits, useNotebookStore } from "@/stores/notebook-store";
@@ -496,25 +498,7 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
   });
 
   const duplicate = useMutation({
-    mutationFn: async (notebookId: string) => {
-      const source = await api.notebooks.get(notebookId);
-      const created = await api.notebooks.create(projectId, {
-        title: `${source.title} (copy)`,
-        description: source.description ?? undefined,
-      });
-      // Remap block + parent ids so the copy is fully independent.
-      const idMap = new Map<string, string>();
-      for (const b of source.blocks) idMap.set(b.id, crypto.randomUUID());
-      const clonedBlocks = source.blocks.map((b) => ({
-        id: idMap.get(b.id)!,
-        type: b.type,
-        config: b.config,
-        outputVariable: b.outputVariable,
-        parentId: b.parentId ? (idMap.get(b.parentId) ?? null) : null,
-      }));
-      await api.notebooks.saveBlocks(created.id, clonedBlocks);
-      return created;
-    },
+    mutationFn: (notebookId: string) => duplicateNotebook(projectId, notebookId),
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["notebooks", projectId] });
       router.push(`${base}/n/${created.id}`);
@@ -530,6 +514,18 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
     >
       {/* Project-level nav pinned at the top */}
       <div className="grid gap-0.5 border-b p-2">
+        <Link
+          href={base}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+            pathname === base
+              ? "bg-muted font-medium text-foreground"
+              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+          )}
+        >
+          <LayoutGrid className="size-3.5 shrink-0" />
+          Overview
+        </Link>
         <Link
           href={`${base}/contracts`}
           className={cn(
