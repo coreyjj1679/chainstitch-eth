@@ -76,8 +76,8 @@ hand to the frontend — and it stops drifting because it's the same artifact yo
 just ran.
 
 <p align="center">
-  <img src="screenshots/codegen-source.png" alt="The full-notebook source toggle showing generated wagmi useReadContract hooks for the Uniswap reads">
-  <br><sub>The codegen toggle emits copy-pasteable wagmi/viem code, with ABIs sourced from your address book entries.</sub>
+  <img src="screenshots/codegen-source.png" alt="A read block with its source toggle open, showing the generated wagmi useReadContract hook in five flavor tabs">
+  <br><sub>Every block carries its own source toggle — copy-pasteable wagmi, viem, Python, Rust or Solidity, with ABIs from your address book.</sub>
 </p>
 
 ### Address book

@@ -299,7 +299,7 @@ export function LandingPage({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/landing/codegen-source.png"
-              alt="The full-notebook source toggle showing generated wagmi useReadContract hooks"
+              alt="A read block with its source toggle open, showing the generated wagmi useReadContract hook"
               className="w-full rounded-xl border"
             />
           </div>
