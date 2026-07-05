@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useMe, useProjects } from "@/lib/hooks";
 import { AccountMenu } from "@/components/workspace/account-menu";
+import { GithubLink } from "@/components/github-link";
 import { Logo, LogoMark } from "@/components/logo";
 import { ChainIcon } from "@/components/chains/chain-icon";
 import {
@@ -227,6 +228,16 @@ export function ProjectsHome() {
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-8 py-3">
           <Logo size={24} />
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground"
+              nativeButton={false}
+              render={<Link href="/docs" />}
+            >
+              Docs
+            </Button>
+            <GithubLink />
             <AccountMenu />
             {isOwner && <CreateProjectDialog trigger={<Button size="sm" />} />}
           </div>

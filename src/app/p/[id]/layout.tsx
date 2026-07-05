@@ -10,6 +10,7 @@ import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import { ProjectSettingsDialog } from "@/components/layout/project-settings-dialog";
 import { AccountMenu } from "@/components/workspace/account-menu";
 import { ShareProjectDialog } from "@/components/workspace/share-dialog";
+import { GithubLink } from "@/components/github-link";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,6 +66,7 @@ export default function ProjectLayout({
             <div className="ml-auto flex items-center gap-2">
               <ShareProjectDialog project={project} />
               <WalletButton />
+              <GithubLink className="hidden sm:inline-flex" />
               <AccountMenu />
             </div>
           </div>
