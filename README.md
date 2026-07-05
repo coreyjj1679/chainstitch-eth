@@ -411,17 +411,20 @@ swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab
 ```
 
   Runtime is modest — a 1 GB box runs Chainstitch fine once built. On
-  anything smaller (512 MB), skip on-box builds entirely: build elsewhere,
-  ship the image, and run it via the `docker-compose.image.yml` override:
+  anything smaller (512 MB), skip on-box builds entirely: CI publishes the
+  image to GHCR on every push to `main`, and the
+  `docker-compose.image.yml` override runs it directly:
 
 ```bash
-# on your workstation, in the repo
-docker buildx build --platform linux/amd64 -t chainstitch:latest --load .
-docker save chainstitch:latest | gzip | ssh you@vps 'gunzip | docker load'
-# on the VPS
+docker compose -f docker-compose.yml -f docker-compose.tls.yml \
+  -f docker-compose.image.yml pull chainstitch
 docker compose -f docker-compose.yml -f docker-compose.tls.yml \
   -f docker-compose.image.yml up -d --no-build
 ```
+
+  (Building your own instead? `docker buildx build --platform linux/amd64
+  -t chainstitch:latest --load .`, ship it with `docker save … | ssh … 
+  'docker load'`, and set `CHAINSTITCH_IMAGE=chainstitch:latest` in `.env`.)
 - Never expose a `local`-mode instance to the internet; it has no auth by
   design. Use `team` mode for anything reachable by others.
 - Removing a member locks them out immediately; they can't sign back in unless

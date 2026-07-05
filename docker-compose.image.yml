@@ -1,14 +1,17 @@
 # Run a pre-built image instead of building on this machine — for small
-# hosts (≤ 1 GB RAM) where `npm ci` / `next build` can't complete. Build the
-# image elsewhere and ship it (see README → Self-hosting → Production notes):
+# hosts (≤ 1 GB RAM) where `npm ci` / `next build` can't complete.
 #
-#   # on your workstation, in the repo
-#   docker buildx build --platform linux/amd64 -t chainstitch:latest --load .
-#   docker save chainstitch:latest | gzip | ssh you@vps 'gunzip | docker load'
+# Default: the image CI publishes on every push to main (see
+# .github/workflows/docker.yml). On the VPS:
 #
-#   # on the VPS (--no-build makes compose use the loaded image as-is)
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml \
+#     -f docker-compose.image.yml pull chainstitch
 #   docker compose -f docker-compose.yml -f docker-compose.tls.yml \
 #     -f docker-compose.image.yml up -d --no-build
+#
+# Or ship one yourself and set CHAINSTITCH_IMAGE=chainstitch:latest in .env:
+#   docker buildx build --platform linux/amd64 -t chainstitch:latest --load .
+#   docker save chainstitch:latest | gzip | ssh you@vps 'gunzip | docker load'
 services:
   chainstitch:
-    image: chainstitch:latest
+    image: ${CHAINSTITCH_IMAGE:-ghcr.io/coreyjj1679/chainstitch-eth:latest}
