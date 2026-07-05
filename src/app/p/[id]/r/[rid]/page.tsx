@@ -5,12 +5,13 @@ import { NotebookEditor } from "@/components/notebook/notebook-editor";
 import { useContracts, useProject } from "@/lib/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export default function NotebookPage({
+/** A recipe opened in the full notebook editor (explicit save, no autosave). */
+export default function RecipePage({
   params,
 }: {
-  params: Promise<{ id: string; nid: string }>;
+  params: Promise<{ id: string; rid: string }>;
 }) {
-  const { id, nid } = use(params);
+  const { id, rid } = use(params);
   const { data: project } = useProject(id);
   const { data: contracts } = useContracts(id);
 
@@ -23,5 +24,7 @@ export default function NotebookPage({
     );
   }
 
-  return <NotebookEditor docId={nid} project={project} contracts={contracts} />;
+  return (
+    <NotebookEditor docId={rid} docKind="recipe" project={project} contracts={contracts} />
+  );
 }

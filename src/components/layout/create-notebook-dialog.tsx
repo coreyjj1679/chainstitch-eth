@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { confirmLosingRecipeEdits } from "@/stores/notebook-store";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,7 +42,11 @@ export function CreateNotebookDialog({
       setOpen(false);
       setTitle("");
       setDescription("");
-      router.push(`/p/${projectId}/n/${notebook.id}`);
+      // Opening the new notebook would discard unsaved recipe edits — the
+      // notebook is created either way, so skipping navigation is safe.
+      if (confirmLosingRecipeEdits(notebook.id)) {
+        router.push(`/p/${projectId}/n/${notebook.id}`);
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });

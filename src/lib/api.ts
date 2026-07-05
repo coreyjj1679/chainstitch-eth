@@ -137,6 +137,7 @@ export const api = {
   },
   recipes: {
     list: (projectId: string) => request<Recipe[]>(`/api/projects/${projectId}/recipes`),
+    get: (id: string) => request<Recipe>(`/api/recipes/${id}`),
     create: (
       projectId: string,
       data: { name: string; description?: string; blocks: NotebookBlock[] },

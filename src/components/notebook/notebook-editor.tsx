@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createPublicClient, http, isAddress, type PublicClient } from "viem";
 import { useAccount, useConfig } from "wagmi";
@@ -35,7 +34,8 @@ import {
   Play,
   Plus,
   Radio,
-  Settings2,
+  Save as SaveIcon,
+  Sparkles,
   StepForward,
   UserRound,
   Variable,
@@ -65,6 +65,7 @@ import { VariableBlock } from "@/components/notebook/variable-block";
 import { IfBlock } from "@/components/notebook/if-block";
 import { RecipeBlock } from "@/components/notebook/recipe-block";
 import { CodePanel } from "@/components/notebook/code-panel";
+import { ImportTestDialog } from "@/components/notebook/import-test-dialog";
 import { SaveRecipeDialog } from "@/components/notebook/recipe-dialogs";
 import type {
   BlockResult,
@@ -162,20 +163,21 @@ function AddBlockMenu({
   trigger,
   onAdd,
   align = "start",
+  types = BLOCK_TYPES,
   recipes,
   recipesLabel = "Recipes",
   onInsertRecipe,
-  onManageRecipes,
 }: {
   trigger: React.ReactElement;
   onAdd: (type: BlockType) => void;
   align?: "start" | "center" | "end";
+  /** Offered block types (the recipe editor excludes recipe cells). */
+  types?: typeof BLOCK_TYPES;
   /** Saved recipes offered below the block types (already filtered by caller). */
   recipes?: Recipe[];
   /** Section heading — callers use it to hint what insertion does. */
   recipesLabel?: string;
   onInsertRecipe?: (recipe: Recipe) => void;
-  onManageRecipes?: () => void;
 }) {
   const showRecipes = !!onInsertRecipe && !!recipes && recipes.length > 0;
   return (
@@ -184,7 +186,7 @@ function AddBlockMenu({
         <Plus />
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="min-w-56">
-        {BLOCK_TYPES.map(({ type, label, description, icon: Icon }) => (
+        {types.map(({ type, label, description, icon: Icon }) => (
           <DropdownMenuItem key={type} onClick={() => onAdd(type)} className="gap-2">
             <Icon className="size-3.5 text-muted-foreground" />
             <span className="flex flex-col gap-0">
@@ -219,12 +221,6 @@ function AddBlockMenu({
                   </span>
                 </DropdownMenuItem>
               ))}
-              {onManageRecipes && (
-                <DropdownMenuItem onClick={onManageRecipes} className="gap-2">
-                  <Settings2 className="size-3.5 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Manage recipes…</span>
-                </DropdownMenuItem>
-              )}
             </DropdownMenuGroup>
           </>
         )}
@@ -236,10 +232,12 @@ function AddBlockMenu({
 /** Notion-style hover inserter between cells */
 function CellInserter({
   onAdd,
+  types,
   recipes,
   onInsertRecipe,
 }: {
   onAdd: (type: BlockType) => void;
+  types?: typeof BLOCK_TYPES;
   recipes?: Recipe[];
   onInsertRecipe?: (recipe: Recipe) => void;
 }) {
@@ -250,6 +248,7 @@ function CellInserter({
         <AddBlockMenu
           align="center"
           onAdd={onAdd}
+          types={types}
           recipes={recipes}
           onInsertRecipe={onInsertRecipe}
           trigger={
@@ -267,18 +266,26 @@ function CellInserter({
 }
 
 export function NotebookEditor({
-  notebookId,
+  docId,
+  docKind = "notebook",
   project,
   contracts,
 }: {
-  notebookId: string;
+  /** Notebook id — or recipe id when `docKind` is `"recipe"`. */
+  docId: string;
+  /**
+   * Recipes open in the same editor with three differences: explicit save
+   * instead of autosave (linked cells follow edits), no recipe cells inside
+   * (the runner is non-recursive), and session-only run output.
+   */
+  docKind?: "notebook" | "recipe";
   project: Project;
   contracts: ContractEntry[];
 }) {
+  const isRecipeDoc = docKind === "recipe";
   const wagmiConfig = useConfig();
   const { address: account } = useAccount();
   const queryClient = useQueryClient();
-  const router = useRouter();
 
   const blocks = useNotebookStore((s) => s.blocks);
   const readOnly = useNotebookStore((s) => s.readOnly);
@@ -317,11 +324,40 @@ export function NotebookEditor({
   const [simulateChecking, setSimulateChecking] = useState(false);
   const [recipeSaveOpen, setRecipeSaveOpen] = useState(false);
   const [recipeAnchorId, setRecipeAnchorId] = useState<string | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
-  const { data: notebook, isLoading } = useQuery({
-    queryKey: ["notebook", notebookId],
-    queryFn: () => api.notebooks.get(notebookId),
+  const { data: notebook, isLoading: notebookLoading } = useQuery({
+    queryKey: ["notebook", docId],
+    queryFn: () => api.notebooks.get(docId),
+    enabled: !isRecipeDoc,
   });
+  const { data: recipeDoc, isLoading: recipeLoading } = useQuery({
+    queryKey: ["recipe", docId],
+    queryFn: () => api.recipes.get(docId),
+    enabled: isRecipeDoc,
+  });
+
+  // The editor works off one document shape regardless of what's loaded.
+  const doc = useMemo(
+    () =>
+      isRecipeDoc
+        ? recipeDoc && {
+            id: recipeDoc.id,
+            title: recipeDoc.name,
+            description: recipeDoc.description,
+            blocks: recipeDoc.blocks,
+            usedIn: recipeDoc.usedIn ?? 0,
+          }
+        : notebook && {
+            id: notebook.id,
+            title: notebook.title,
+            description: notebook.description,
+            blocks: notebook.blocks,
+            usedIn: 0,
+          },
+    [isRecipeDoc, recipeDoc, notebook],
+  );
+  const isLoading = isRecipeDoc ? recipeLoading : notebookLoading;
 
   const { data: recipes = [] } = useQuery({
     queryKey: ["recipes", project.id],
@@ -330,25 +366,36 @@ export function NotebookEditor({
 
   const initializedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (notebook && initializedFor.current !== notebook.id) {
-      initializedFor.current = notebook.id;
-      initialize(notebook.id, notebook.blocks);
-      setTitle(notebook.title);
-      setDescription(notebook.description ?? "");
+    if (doc && initializedFor.current !== doc.id) {
+      initializedFor.current = doc.id;
+      // Recipes don't autosave; if the store still holds this recipe with
+      // unsaved edits (e.g. after a detour to the Contracts tab), keep them
+      // instead of clobbering with the last-saved server state.
+      const held = useNotebookStore.getState();
+      const keepDirtyEdits =
+        isRecipeDoc &&
+        held.docKind === "recipe" &&
+        held.notebookId === doc.id &&
+        held.dirty;
+      if (!keepDirtyEdits) initialize(doc.id, doc.blocks, docKind);
+      setTitle(doc.title);
+      setDescription(doc.description ?? "");
     }
-  }, [notebook, initialize]);
+  }, [doc, docKind, initialize, isRecipeDoc]);
 
   // Jupyter-style persisted outputs: restore saved results/history once,
-  // after the notebook itself has been initialized.
+  // after the notebook itself has been initialized. Recipes skip this —
+  // their test runs are session-only.
   const { data: savedRunState } = useQuery({
-    queryKey: ["runState", notebookId],
-    queryFn: () => api.notebooks.getRunState(notebookId),
+    queryKey: ["runState", docId],
+    queryFn: () => api.notebooks.getRunState(docId),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
+    enabled: !isRecipeDoc,
   });
   const hydratedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!notebook || initializedFor.current !== notebook.id) return;
+    if (isRecipeDoc || !notebook || initializedFor.current !== notebook.id) return;
     if (!savedRunState || hydratedFor.current === notebook.id) return;
     hydratedFor.current = notebook.id;
     if (!savedRunState.state) return;
@@ -360,7 +407,7 @@ export function NotebookEditor({
     } catch {
       // Corrupt or incompatible saved state: start with a clean slate.
     }
-  }, [notebook, savedRunState, hydrateRunState]);
+  }, [isRecipeDoc, notebook, savedRunState, hydrateRunState]);
 
   // Viewers get a read-only notebook: no edits, no autosave — running still
   // works. Gated on the project's effective role (workspace role or grant).
@@ -369,10 +416,18 @@ export function NotebookEditor({
   }, [project.role, setReadOnly]);
 
   const saveMeta = useMutation({
-    mutationFn: () => api.notebooks.update(notebookId, { title, description }),
+    mutationFn: async () => {
+      if (isRecipeDoc) await api.recipes.update(docId, { name: title, description });
+      else await api.notebooks.update(docId, { title, description });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notebooks", project.id] });
-      queryClient.invalidateQueries({ queryKey: ["notebook", notebookId] });
+      if (isRecipeDoc) {
+        queryClient.invalidateQueries({ queryKey: ["recipes", project.id] });
+        queryClient.invalidateQueries({ queryKey: ["recipe", docId] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["notebooks", project.id] });
+        queryClient.invalidateQueries({ queryKey: ["notebook", docId] });
+      }
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -386,31 +441,65 @@ export function NotebookEditor({
     [project],
   );
 
-  // Debounced autosave whenever blocks change.
+  // Debounced autosave whenever blocks change — notebooks only. Recipe edits
+  // propagate to every linked cell, so recipes save explicitly instead.
   useEffect(() => {
-    if (!dirty || !notebook || readOnly) return;
+    if (isRecipeDoc || !dirty || !notebook || readOnly) return;
     const timer = setTimeout(async () => {
       try {
-        await api.notebooks.saveBlocks(notebookId, useNotebookStore.getState().blocks);
+        await api.notebooks.saveBlocks(docId, useNotebookStore.getState().blocks);
         markSaved();
       } catch (e) {
         toast.error(`Autosave failed: ${shortError(e)}`);
       }
     }, 800);
     return () => clearTimeout(timer);
-  }, [blocks, dirty, notebook, notebookId, markSaved, readOnly]);
+  }, [blocks, dirty, notebook, docId, markSaved, readOnly, isRecipeDoc]);
+
+  const saveRecipe = useMutation({
+    mutationFn: () =>
+      api.recipes.update(docId, {
+        name: title.trim() || "Untitled recipe",
+        description,
+        blocks: useNotebookStore.getState().blocks,
+      }),
+    onSuccess: (updated) => {
+      markSaved();
+      queryClient.invalidateQueries({ queryKey: ["recipes", project.id] });
+      queryClient.invalidateQueries({ queryKey: ["recipe", docId] });
+      toast.success(
+        (updated.usedIn ?? 0) > 0
+          ? `Recipe saved — ${updated.usedIn} linked ${updated.usedIn === 1 ? "notebook picks" : "notebooks pick"} up the changes`
+          : "Recipe saved",
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  // Stable across renders (TanStack Query) — safe to use in effects.
+  const saveRecipeMutate = saveRecipe.mutate;
+
+  // Unsaved recipe edits: warn before the tab closes (in-app navigation is
+  // guarded by the sidebar links).
+  useEffect(() => {
+    if (isRecipeDoc && dirty && !readOnly) {
+      const handler = (e: BeforeUnloadEvent) => e.preventDefault();
+      window.addEventListener("beforeunload", handler);
+      return () => window.removeEventListener("beforeunload", handler);
+    }
+  }, [isRecipeDoc, dirty, readOnly]);
 
   // Debounced autosave of run output (results/history/counter) after runs.
   // Viewers run session-only; their results are never persisted.
   useEffect(() => {
-    if (!notebook || readOnly || hydratedFor.current !== notebook.id) return;
+    if (isRecipeDoc || !notebook || readOnly || hydratedFor.current !== notebook.id)
+      return;
     if (!useNotebookStore.getState().runDirty) return;
     const timer = setTimeout(async () => {
       const s = useNotebookStore.getState();
       const revision = s.runRevision;
       try {
         await api.notebooks.saveRunState(
-          notebookId,
+          docId,
           stringifyBigIntSafe({
             execCounter: s.execCounter,
             results: s.results,
@@ -423,7 +512,7 @@ export function NotebookEditor({
       }
     }, 1200);
     return () => clearTimeout(timer);
-  }, [runRevision, notebook, notebookId, readOnly, markRunSaved]);
+  }, [runRevision, notebook, docId, readOnly, markRunSaved, isRecipeDoc]);
 
   /**
    * Resolve the sender group (if any) a block belongs to. `list` defaults to
@@ -963,6 +1052,13 @@ export function NotebookEditor({
   // Jupyter-style keyboard shortcuts on the selected block.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // Cmd/Ctrl+S saves the recipe, even while typing in a field.
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s" && isRecipeDoc) {
+        e.preventDefault();
+        const state = useNotebookStore.getState();
+        if (!state.readOnly && state.dirty) saveRecipeMutate();
+        return;
+      }
       if (isTypingTarget(e.target)) {
         // Cmd/Ctrl+Enter runs the selected block even while typing in it
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && selectedId) {
@@ -993,7 +1089,7 @@ export function NotebookEditor({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedId, addBlock, runOne]);
+  }, [selectedId, addBlock, runOne, isRecipeDoc, saveRecipeMutate]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -1061,12 +1157,30 @@ export function NotebookEditor({
     setRecipeSaveOpen(true);
   }
 
+  /** Append AI-imported blocks (ids re-minted, parent links remapped). */
+  function handleAiImport(imported: NotebookBlock[]) {
+    const ids = insertBlocksAt(imported, useNotebookStore.getState().blocks.length);
+    if (ids.length === 0) return;
+    setSelectedId(ids[0]);
+    scrollToBlock(ids[0]);
+    toast.success(
+      `Inserted ${ids.length} ${ids.length === 1 ? "block" : "blocks"} from the test file`,
+    );
+  }
+
   /** Recipes containing a group can't be pasted inside another group. */
   const groupSafeRecipes = recipes.filter((r) =>
     r.blocks.every((b) => !isGroupType(b.type)),
   );
 
-  if (isLoading || !notebook) {
+  // Recipe cells can't nest inside recipes (the runner is non-recursive),
+  // so the recipe editor neither offers the block type nor linked inserts.
+  const availableTypes = isRecipeDoc
+    ? BLOCK_TYPES.filter((t) => t.type !== "recipe")
+    : BLOCK_TYPES;
+  const insertableRecipes = isRecipeDoc ? undefined : recipes;
+
+  if (isLoading || !doc) {
     return (
       <div className="grid gap-4">
         <Skeleton className="h-10 w-72" />
@@ -1171,8 +1285,9 @@ export function NotebookEditor({
         onRun={() => runOne(block)}
         onSimulate={isRunnableType(block.type) ? () => simulateOne(block) : undefined}
         onSaveAsRecipe={
-          // Recipe cells can't be nested into recipes — no bookmark for them.
-          readOnly || block.type === "recipe"
+          // Recipe cells can't be nested into recipes — no bookmark for them,
+          // and none inside the recipe editor itself.
+          readOnly || isRecipeDoc || block.type === "recipe"
             ? undefined
             : () => openSaveRecipe(block.id)
         }
@@ -1187,7 +1302,8 @@ export function NotebookEditor({
                     setSelectedId(id);
                     scrollToBlock(id);
                   }}
-                  recipes={groupSafeRecipes}
+                  types={availableTypes}
+                  recipes={isRecipeDoc ? undefined : groupSafeRecipes}
                   recipesLabel="Paste recipe blocks"
                   onInsertRecipe={(recipe) =>
                     handlePasteRecipe(recipe, blocks.length, block.id)
@@ -1262,20 +1378,36 @@ export function NotebookEditor({
         {!readOnly && (
           <Pencil className="pointer-events-none absolute top-2 right-2 size-3.5 text-muted-foreground/0 transition-colors group-hover/meta:text-muted-foreground/50" />
         )}
+        {isRecipeDoc && (
+          <p className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <BookMarked className="size-3.5 shrink-0 text-cyan-400" />
+            <span>
+              Recipe
+              {doc.usedIn > 0 && (
+                <>
+                  {" · "}
+                  <span title="Saved changes apply to every linked cell automatically">
+                    linked in {doc.usedIn} {doc.usedIn === 1 ? "notebook" : "notebooks"}
+                  </span>
+                </>
+              )}
+            </span>
+          </p>
+        )}
         <input
           value={title}
           readOnly={readOnly}
           onChange={(e) => setTitle(e.target.value)}
           onBlur={() => {
             if (readOnly) return;
-            if (title.trim() && title !== notebook.title) saveMeta.mutate();
-            else if (!title.trim()) setTitle(notebook.title);
+            if (title.trim() && title !== doc.title) saveMeta.mutate();
+            else if (!title.trim()) setTitle(doc.title);
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
-          placeholder="Untitled notebook"
-          aria-label="Notebook title"
+          placeholder={isRecipeDoc ? "Untitled recipe" : "Untitled notebook"}
+          aria-label={isRecipeDoc ? "Recipe name" : "Notebook title"}
           title={readOnly ? undefined : "Click to edit the title"}
           className={cn(
             "-mx-1.5 w-full rounded-md bg-transparent px-1.5 text-2xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/40",
@@ -1288,13 +1420,13 @@ export function NotebookEditor({
           onChange={(e) => setDescription(e.target.value)}
           onBlur={() => {
             if (readOnly) return;
-            if (description !== (notebook.description ?? "")) saveMeta.mutate();
+            if (description !== (doc.description ?? "")) saveMeta.mutate();
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
           placeholder={readOnly ? "" : "Add a description…"}
-          aria-label="Notebook description"
+          aria-label={isRecipeDoc ? "Recipe description" : "Notebook description"}
           title={readOnly ? undefined : "Click to edit the description"}
           className={cn(
             "mt-1 -mx-1.5 w-full rounded-md bg-transparent px-1.5 py-0.5 text-sm text-muted-foreground outline-none placeholder:text-muted-foreground/40",
@@ -1360,9 +1492,9 @@ export function NotebookEditor({
         {!readOnly && (
           <AddBlockMenu
             onAdd={(type) => handleInsert(type, blocks.length)}
-            recipes={recipes}
+            types={availableTypes}
+            recipes={insertableRecipes}
             onInsertRecipe={(recipe) => handleInsertRecipeBlock(recipe, blocks.length)}
-            onManageRecipes={() => router.push(`/p/${project.id}/recipes`)}
             trigger={
               <Button
                 variant="ghost"
@@ -1430,7 +1562,7 @@ export function NotebookEditor({
         >
           <Download />
         </Button>
-        {!readOnly && (
+        {!readOnly && !isRecipeDoc && (
           <Button
             variant="ghost"
             size="icon-sm"
@@ -1440,6 +1572,17 @@ export function NotebookEditor({
             title="Save blocks as a reusable recipe for this project"
           >
             <BookmarkPlus />
+          </Button>
+        )}
+        {!readOnly && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setImportOpen(true)}
+            aria-label="Import from Foundry test"
+            title="AI import: paste a Foundry .t.sol file, get blocks (bring your own Gemini key)"
+          >
+            <Sparkles />
           </Button>
         )}
 
@@ -1462,11 +1605,24 @@ export function NotebookEditor({
               <span
                 className={cn(
                   "size-1.5 rounded-full",
-                  dirty ? "animate-pulse bg-amber-400" : "bg-emerald-500/70",
+                  dirty
+                    ? cn("bg-amber-400", !isRecipeDoc && "animate-pulse")
+                    : "bg-emerald-500/70",
                 )}
               />
-              {dirty ? "saving" : "saved"}
+              {dirty ? (isRecipeDoc ? "unsaved" : "saving") : "saved"}
             </span>
+          )}
+          {isRecipeDoc && !readOnly && (
+            <Button
+              size="sm"
+              onClick={() => saveRecipe.mutate()}
+              disabled={!dirty || saveRecipe.isPending}
+              title="Save the recipe — every linked cell picks up the changes (Cmd+S)"
+            >
+              <SaveIcon data-icon="inline-start" />
+              {saveRecipe.isPending ? "Saving…" : "Save"}
+            </Button>
           )}
         </span>
       </div>
@@ -1515,13 +1671,25 @@ export function NotebookEditor({
         </DialogContent>
       </Dialog>
 
-      <SaveRecipeDialog
-        open={recipeSaveOpen}
-        onOpenChange={setRecipeSaveOpen}
-        projectId={project.id}
-        contracts={contracts}
-        initialSelectedId={recipeAnchorId}
-      />
+      {!isRecipeDoc && (
+        <SaveRecipeDialog
+          open={recipeSaveOpen}
+          onOpenChange={setRecipeSaveOpen}
+          projectId={project.id}
+          contracts={contracts}
+          initialSelectedId={recipeAnchorId}
+        />
+      )}
+
+      {!readOnly && (
+        <ImportTestDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          projectId={project.id}
+          contracts={contracts}
+          onInsert={handleAiImport}
+        />
+      )}
 
       {showNotebookCode && (
         <div className="mb-6 rounded-xl border p-4">
@@ -1547,7 +1715,8 @@ export function NotebookEditor({
                 {!readOnly && (
                   <CellInserter
                     onAdd={(type) => handleInsert(type, blocks.indexOf(block))}
-                    recipes={recipes}
+                    types={availableTypes}
+                    recipes={insertableRecipes}
                     onInsertRecipe={(recipe) =>
                       handleInsertRecipeBlock(recipe, blocks.indexOf(block))
                     }
@@ -1557,7 +1726,8 @@ export function NotebookEditor({
                 {index === topLevelBlocks.length - 1 && !readOnly && (
                   <CellInserter
                     onAdd={(type) => handleInsert(type, blocks.length)}
-                    recipes={recipes}
+                    types={availableTypes}
+                    recipes={insertableRecipes}
                     onInsertRecipe={(recipe) =>
                       handleInsertRecipeBlock(recipe, blocks.length)
                     }
@@ -1571,15 +1741,19 @@ export function NotebookEditor({
 
       {blocks.length === 0 && (
         <div className="mx-11 flex flex-col items-center rounded-xl border border-dashed px-8 py-14 text-center">
-          <p className="mb-1 font-medium">Empty notebook</p>
+          <p className="mb-1 font-medium">
+            {isRecipeDoc ? "Empty recipe" : "Empty notebook"}
+          </p>
           <p className="mb-5 text-sm text-muted-foreground">
             {readOnly
               ? "Nothing here yet — you have read-only access to this workspace."
-              : "Add your first block — read a contract, send a transaction, make an RPC call, or write some notes."}
+              : isRecipeDoc
+                ? "Build the flow like a notebook — add blocks, test-run them here, then hit Save to publish the recipe."
+                : "Add your first block — read a contract, send a transaction, make an RPC call, or write some notes."}
           </p>
           {!readOnly && (
             <div className="flex flex-wrap items-center justify-center gap-2">
-              {BLOCK_TYPES.map(({ type, label, icon: Icon }) => (
+              {availableTypes.map(({ type, label, icon: Icon }) => (
                 <Button
                   key={type}
                   variant="outline"
@@ -1604,7 +1778,11 @@ export function NotebookEditor({
           <>
             <kbd>B</kbd> add block below · <kbd>M</kbd> add text ·{" "}
             <kbd>Shift+Enter</kbd> run selected · <kbd>Cmd+Enter</kbd> run while
-            editing · double-click a block to edit
+            editing{isRecipeDoc && (
+              <>
+                {" "}· <kbd>Cmd+S</kbd> save recipe
+              </>
+            )} · double-click a block to edit
           </>
         )}
       </p>

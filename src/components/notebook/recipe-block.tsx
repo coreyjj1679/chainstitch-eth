@@ -92,8 +92,8 @@ export function RecipeBlock({
         </div>
         {recipes.length === 0 && (
           <p className="text-xs text-muted-foreground/70">
-            No recipes in this project yet — save blocks as a recipe from any
-            notebook, or see the Recipes tab.
+            No recipes in this project yet — bookmark blocks in any notebook,
+            or create one under Recipes in the sidebar.
           </p>
         )}
         {config.recipeId && !recipe && (

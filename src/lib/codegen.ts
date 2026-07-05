@@ -496,7 +496,7 @@ export function generateBlockCode(
     return `${comment} if ${condition}: (the blocks below run only when this holds)`;
   }
   if (block.type === "recipe") {
-    return `${comment} recipe cell — reruns a saved recipe (see the project's Recipes tab)`;
+    return `${comment} recipe cell — reruns a saved recipe (see Recipes in the sidebar)`;
   }
   if (block.type === "variable") {
     return generateVariableCode(block.config as VariableConfig, flavor);

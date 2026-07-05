@@ -27,7 +27,7 @@ import { api } from "@/lib/api";
 import { useContracts, useNotebooks, useProject, useRecipes } from "@/lib/hooks";
 import { blockLabel, executionOrder } from "@/lib/block-label";
 import { displayValue } from "@/lib/serialize";
-import { useNotebookStore } from "@/stores/notebook-store";
+import { confirmLosingRecipeEdits, useNotebookStore } from "@/stores/notebook-store";
 import { CreateNotebookDialog } from "@/components/layout/create-notebook-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -121,9 +121,10 @@ function SidebarSection({
   );
 }
 
-/** Jupyter-style table of contents for the notebook currently loaded. */
+/** Jupyter-style table of contents for the document currently loaded. */
 function BlockToc({ projectId }: { projectId: string }) {
   const storeNotebookId = useNotebookStore((s) => s.notebookId);
+  const docKind = useNotebookStore((s) => s.docKind);
   const blocks = useNotebookStore((s) => s.blocks);
   const results = useNotebookStore((s) => s.results);
   const { data: contracts } = useContracts(projectId);
@@ -132,7 +133,10 @@ function BlockToc({ projectId }: { projectId: string }) {
   const router = useRouter();
 
   if (!storeNotebookId || blocks.length === 0) return null;
-  const notebookPath = `/p/${projectId}/n/${storeNotebookId}`;
+  const notebookPath =
+    docKind === "recipe"
+      ? `/p/${projectId}/r/${storeNotebookId}`
+      : `/p/${projectId}/n/${storeNotebookId}`;
 
   // Scroll to a block, navigating back to the notebook page first if needed.
   const goToBlock = (blockId: string) => {
@@ -425,6 +429,7 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: notebooks, isLoading } = useNotebooks(projectId);
+  const { data: recipes, isLoading: recipesLoading } = useRecipes(projectId);
   const { data: project } = useProject(projectId);
   // Effective role on this project (workspace role or per-project grant).
   const canEdit = project?.role === "editor" || project?.role === "owner";
@@ -469,6 +474,25 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
       queryClient.invalidateQueries({ queryKey: ["notebooks", projectId] });
       if (pathname === `${base}/n/${notebookId}`) router.push(base);
     },
+  });
+
+  const createRecipe = useMutation({
+    mutationFn: () =>
+      api.recipes.create(projectId, { name: "Untitled recipe", blocks: [] }),
+    onSuccess: (recipe) => {
+      queryClient.invalidateQueries({ queryKey: ["recipes", projectId] });
+      router.push(`${base}/r/${recipe.id}`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const removeRecipe = useMutation({
+    mutationFn: (recipeId: string) => api.recipes.remove(recipeId),
+    onSuccess: (_data, recipeId) => {
+      queryClient.invalidateQueries({ queryKey: ["recipes", projectId] });
+      if (pathname === `${base}/r/${recipeId}`) router.push(base);
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const duplicate = useMutation({
@@ -530,18 +554,6 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
           <Database className="size-3.5 shrink-0" />
           State
         </Link>
-        <Link
-          href={`${base}/recipes`}
-          className={cn(
-            "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-            pathname === `${base}/recipes`
-              ? "bg-muted font-medium text-foreground"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-          )}
-        >
-          <BookMarked className="size-3.5 shrink-0" />
-          Recipes
-        </Link>
       </div>
 
       <SidebarSection
@@ -574,6 +586,9 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
                 <Link
                   key={n.id}
                   href={href}
+                  onClick={(e) => {
+                    if (!confirmLosingRecipeEdits(n.id)) e.preventDefault();
+                  }}
                   className={cn(
                     "group/link relative flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
                     active
@@ -620,6 +635,99 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
             {canEdit ? "No notebooks yet. Click + to create one." : "No notebooks yet."}
           </p>
         )}
+        </nav>
+      </SidebarSection>
+
+      {/* Recipes are documents like notebooks: open one to edit & test it. */}
+      <SidebarSection
+        id="recipes"
+        label="Recipes"
+        className="shrink-0 border-t px-3 pt-3 pb-1"
+        action={
+          canEdit && (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="New recipe"
+              title="New recipe — build it like a notebook, then Save"
+              disabled={createRecipe.isPending}
+              onClick={() => {
+                if (confirmLosingRecipeEdits()) createRecipe.mutate();
+              }}
+            >
+              <Plus />
+            </Button>
+          )
+        }
+      >
+        <nav className="-mx-1 mt-1 max-h-[30vh] overflow-y-auto pb-1">
+          {recipesLoading ? (
+            <div className="grid gap-1 p-1">
+              <Skeleton className="h-7" />
+            </div>
+          ) : recipes && recipes.length > 0 ? (
+            <div className="grid gap-0.5">
+              {recipes.map((r) => {
+                const href = `${base}/r/${r.id}`;
+                const active = pathname === href;
+                const usedIn = r.usedIn ?? 0;
+                return (
+                  <Link
+                    key={r.id}
+                    href={href}
+                    onClick={(e) => {
+                      if (!confirmLosingRecipeEdits(r.id)) e.preventDefault();
+                    }}
+                    title={
+                      [
+                        r.description,
+                        usedIn > 0
+                          ? `Linked in ${usedIn} ${usedIn === 1 ? "notebook" : "notebooks"}`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join("\n") || undefined
+                    }
+                    className={cn(
+                      "group/link relative flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
+                      active
+                        ? "bg-muted font-medium text-foreground before:absolute before:inset-y-1 before:-left-1 before:w-0.5 before:rounded-full before:bg-primary"
+                        : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    )}
+                  >
+                    <BookMarked className="size-3.5 shrink-0 text-cyan-400/80" />
+                    <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                    {canEdit && (
+                      <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/link:opacity-100">
+                        <button
+                          className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+                          aria-label={`Delete ${r.name}`}
+                          title="Delete recipe"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            const warning =
+                              usedIn > 0
+                                ? `Delete recipe "${r.name}"? ${usedIn} ${usedIn === 1 ? "notebook links" : "notebooks link"} to it — their recipe cells will show it as deleted.`
+                                : `Delete recipe "${r.name}"?`;
+                            if (confirm(warning)) removeRecipe.mutate(r.id);
+                          }}
+                        >
+                          <Trash2 className="size-3" />
+                        </button>
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="px-2 py-2 text-xs text-muted-foreground/70">
+              {canEdit
+                ? "No recipes yet. Bookmark cells in a notebook, or click + to start one."
+                : "No recipes yet."}
+            </p>
+          )}
         </nav>
       </SidebarSection>
 

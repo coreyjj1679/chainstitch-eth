@@ -33,8 +33,13 @@ function defaultConfig(type: BlockType): BlockConfig {
   }
 }
 
+/** What the store currently holds: a notebook or a recipe opened as one. */
+export type NotebookDocKind = "notebook" | "recipe";
+
 interface NotebookState {
+  /** Id of the loaded document (a notebook id, or a recipe id in recipe mode). */
   notebookId: string | null;
+  docKind: NotebookDocKind;
   blocks: NotebookBlock[];
   results: Record<string, BlockResult>;
   /** Newest-first past results per block (bounded by MAX_HISTORY) */
@@ -55,7 +60,11 @@ interface NotebookState {
   /** Viewer role: block edits are disabled, running is still allowed. */
   readOnly: boolean;
 
-  initialize: (notebookId: string, blocks: NotebookBlock[]) => void;
+  initialize: (
+    notebookId: string,
+    blocks: NotebookBlock[],
+    docKind?: NotebookDocKind,
+  ) => void;
   /** Restore persisted results/history/counter (Jupyter-style saved outputs). */
   hydrateRunState: (notebookId: string, runState: NotebookRunState) => void;
   setReadOnly: (readOnly: boolean) => void;
@@ -97,6 +106,7 @@ interface NotebookState {
 
 export const useNotebookStore = create<NotebookState>((set, get) => ({
   notebookId: null,
+  docKind: "notebook",
   blocks: [],
   results: {},
   history: {},
@@ -109,9 +119,10 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   runRevision: 0,
   readOnly: false,
 
-  initialize: (notebookId, blocks) =>
+  initialize: (notebookId, blocks, docKind = "notebook") =>
     set((state) => ({
       notebookId,
+      docKind,
       blocks,
       results: {},
       history: {},
@@ -459,3 +470,17 @@ export const useNotebookStore = create<NotebookState>((set, get) => ({
   markRunSaved: (revision) =>
     set((state) => (state.runRevision === revision ? { runDirty: false } : state)),
 }));
+
+/**
+ * Recipes save explicitly (no autosave), and loading another document
+ * re-initializes this shared store — call before navigation that would
+ * discard unsaved recipe edits. Returns true when it's safe to proceed.
+ */
+export function confirmLosingRecipeEdits(targetDocId?: string): boolean {
+  const s = useNotebookStore.getState();
+  if (s.docKind !== "recipe" || !s.dirty) return true;
+  if (targetDocId && s.notebookId === targetDocId) return true;
+  return confirm(
+    "This recipe has unsaved changes that will be lost. Leave without saving?",
+  );
+}

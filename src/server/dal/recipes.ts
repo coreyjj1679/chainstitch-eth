@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import {
   hasAnyAccess,
@@ -58,10 +58,12 @@ async function requireRecipe(
 /**
  * Normalize incoming blocks: fresh ids, parent links remapped, only the
  * known fields kept. Rejects malformed shapes and dangling parent links.
+ * An empty array is allowed — recipes can start blank and be built in the
+ * recipe editor.
  */
 function sanitizeBlocks(incoming: unknown): string {
-  if (!Array.isArray(incoming) || incoming.length === 0) {
-    throw badRequest("blocks must be a non-empty array");
+  if (!Array.isArray(incoming)) {
+    throw badRequest("blocks must be an array");
   }
   const idMap = new Map<string, string>();
   for (const block of incoming) {
@@ -103,6 +105,26 @@ function sanitizeBlocks(incoming: unknown): string {
   return json;
 }
 
+/**
+ * Distinct notebooks per recipe holding a linked recipe cell, keyed by recipe
+ * id. Feeds the "used in N notebooks" hint in the recipe editor & sidebar.
+ */
+async function usageByRecipe(projectId: string): Promise<Map<string, number>> {
+  const recipeIdExpr = sql<string>`json_extract(${schema.blocks.config}, '$.recipeId')`;
+  const rows = await db
+    .select({
+      recipeId: recipeIdExpr,
+      count: sql<number>`count(distinct ${schema.blocks.notebookId})`,
+    })
+    .from(schema.blocks)
+    .innerJoin(schema.notebooks, eq(schema.notebooks.id, schema.blocks.notebookId))
+    .where(
+      and(eq(schema.blocks.type, "recipe"), eq(schema.notebooks.projectId, projectId)),
+    )
+    .groupBy(recipeIdExpr);
+  return new Map(rows.filter((r) => !!r.recipeId).map((r) => [r.recipeId, r.count]));
+}
+
 export async function listRecipes(ctx: AuthContext, projectId: string) {
   await requireProject(ctx, projectId);
   const rows = await db
@@ -110,7 +132,14 @@ export async function listRecipes(ctx: AuthContext, projectId: string) {
     .from(schema.recipes)
     .where(eq(schema.recipes.projectId, projectId))
     .orderBy(asc(schema.recipes.createdAt));
-  return rows.map(toDto);
+  const usage = await usageByRecipe(projectId);
+  return rows.map((row) => ({ ...toDto(row), usedIn: usage.get(row.id) ?? 0 }));
+}
+
+export async function getRecipe(ctx: AuthContext, id: string) {
+  const row = await requireRecipe(ctx, id);
+  const usage = await usageByRecipe(row.projectId);
+  return { ...toDto(row), usedIn: usage.get(row.id) ?? 0 };
 }
 
 export async function createRecipe(
@@ -131,7 +160,7 @@ export async function createRecipe(
     updatedAt: now,
   };
   await db.insert(schema.recipes).values(row);
-  return toDto(row);
+  return { ...toDto(row), usedIn: 0 };
 }
 
 export async function updateRecipe(
@@ -149,7 +178,9 @@ export async function updateRecipe(
     updates.description = body.description ? String(body.description) : null;
   if (body.blocks !== undefined) updates.blocks = sanitizeBlocks(body.blocks);
   await db.update(schema.recipes).set(updates).where(eq(schema.recipes.id, id));
-  return toDto(await requireRecipe(ctx, id));
+  const row = await requireRecipe(ctx, id);
+  const usage = await usageByRecipe(row.projectId);
+  return { ...toDto(row), usedIn: usage.get(row.id) ?? 0 };
 }
 
 export async function deleteRecipe(ctx: AuthContext, id: string): Promise<void> {

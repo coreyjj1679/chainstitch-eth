@@ -121,6 +121,8 @@ export interface Recipe {
   blocks: NotebookBlock[];
   createdAt: number;
   updatedAt: number;
+  /** Distinct notebooks with a linked cell for this recipe (list/get only). */
+  usedIn?: number;
 }
 
 export interface StateViewEntry {
