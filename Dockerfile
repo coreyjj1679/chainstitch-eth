@@ -10,11 +10,17 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
+# Small-VPS builds: V8 self-caps its heap from detected RAM (~256 MB on a
+# 1 GB box), which npm's dependency tree outgrows — raise it explicitly
+# (needs swap to back it on small machines; see README → Self-hosting).
+ENV NODE_OPTIONS=--max-old-space-size=2048
 COPY package.json package-lock.json .npmrc* ./
-RUN npm ci
+RUN npm ci --no-audit --no-fund
 
 FROM node:22-slim AS builder
 WORKDIR /app
+# next build hits the same small-machine V8 heap cap as npm ci above.
+ENV NODE_OPTIONS=--max-old-space-size=2048
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1

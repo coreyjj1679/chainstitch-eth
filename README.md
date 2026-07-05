@@ -394,6 +394,18 @@ browser wallets work without it.
   plus `APP_INSTANCE_URL=https://your-instance.example.com`: that build
   serves `/` and `/docs` and redirects everything else (login, share
   links, API) to the real instance, so the database never loads.
+- Building the image **on a small VPS (≤ 1 GB RAM)** needs a swapfile —
+  `npm ci` and `next build` are the hungry steps (the Dockerfile already
+  raises Node's heap cap for them):
+
+```bash
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile
+swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+  Runtime is modest — a 1 GB box runs Chainstitch fine once built. To skip
+  on-box builds entirely, build elsewhere and ship the image:
+  `docker buildx build --platform linux/amd64 -t chainstitch . && docker save chainstitch | gzip | ssh you@vps 'gunzip | docker load'`.
 - Never expose a `local`-mode instance to the internet; it has no auth by
   design. Use `team` mode for anything reachable by others.
 - Removing a member locks them out immediately; they can't sign back in unless
