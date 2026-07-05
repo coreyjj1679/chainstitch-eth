@@ -45,8 +45,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# internal planning docs — not part of the public repo
-docs/
+# internal planning docs — not part of the public repo (root only;
+# src/app/docs is the in-app docs route and stays tracked)
+/docs/
 
 # screenshot capture tooling (scratch — regenerate via .capture/README if needed)
 .capture/

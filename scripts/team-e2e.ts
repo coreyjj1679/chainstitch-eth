@@ -148,6 +148,7 @@ async function main() {
       gated.status === 307 && gated.headers.get("location")?.includes("/login"),
       "anonymous app route redirects to /login",
     );
+    ok((await anon("GET", "/docs")).status === 200, "docs page is public");
     ok((await anon("GET", "/login")).status === 200, "login page is reachable");
 
     // Login policy
