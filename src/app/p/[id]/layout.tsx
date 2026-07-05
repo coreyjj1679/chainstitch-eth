@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useProject } from "@/lib/hooks";
 import { ProjectWeb3Provider } from "@/components/wallet/project-web3-provider";
 import { WalletButton } from "@/components/wallet/wallet-button";
+import { DocTabStrip } from "@/components/layout/doc-tab-strip";
 import { ProjectSidebar } from "@/components/layout/project-sidebar";
 import { ProjectSettingsDialog } from "@/components/layout/project-settings-dialog";
 import { AccountMenu } from "@/components/workspace/account-menu";
@@ -70,9 +71,12 @@ export default function ProjectLayout({
         </header>
         <div className="flex min-h-0 flex-1">
           <ProjectSidebar projectId={id} />
-          <main className="min-w-0 flex-1 overflow-y-auto">
-            <div className="w-full max-w-7xl px-8 py-8">{children}</div>
-          </main>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <DocTabStrip projectId={id} />
+            <main className="min-w-0 flex-1 overflow-y-auto">
+              <div className="w-full max-w-7xl px-8 py-8">{children}</div>
+            </main>
+          </div>
         </div>
       </div>
     </ProjectWeb3Provider>
