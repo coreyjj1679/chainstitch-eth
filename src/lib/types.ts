@@ -125,6 +125,25 @@ export interface Recipe {
   usedIn?: number;
 }
 
+/** Server ABI lookup result (verified-source explorers, per project chain). */
+export interface AbiLookupResult {
+  found: boolean;
+  /** Which explorer produced the hit. */
+  source?: "etherscan" | "sourcify" | "blockscout";
+  name?: string;
+  abi?: Abi;
+  /**
+   * Proxy hint: the implementation behind `address`, resolved one level when
+   * the explorer reports it (Etherscan/Blockscout). `abi` is then the
+   * implementation ABI when it could be fetched.
+   */
+  implementation?: { address: string; name?: string; abiResolved: boolean } | null;
+  /** Sources that were actually queried, in order. */
+  tried: string[];
+  /** False when ETHERSCAN_API_KEY is unset — the UI can hint about coverage. */
+  etherscanConfigured: boolean;
+}
+
 export interface StateViewEntry {
   id: string;
   projectId: string;

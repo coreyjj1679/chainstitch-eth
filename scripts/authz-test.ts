@@ -53,6 +53,7 @@ async function main() {
     stateViews: await import("../src/server/dal/state-views"),
     workspace: await import("../src/server/dal/workspace"),
   };
+  const abiLookup = await import("../src/server/abi-lookup");
   type Ctx = import("../src/server/auth-context").AuthContext;
 
   // --- Fixtures ------------------------------------------------------------
@@ -177,6 +178,23 @@ async function main() {
     dal.contracts.createContract(viewer, project.id, { name: "x", abi: [] }),
     403,
     "viewer cannot create contract",
+  );
+  // ABI lookup is editor-gated like contract creation. The editor case uses
+  // an invalid address on purpose: the 400 proves the role gate passed while
+  // keeping the test offline (no explorer API is ever contacted).
+  await expectStatus(
+    abiLookup.lookupAbiForProject(
+      viewer,
+      project.id,
+      "0x0000000000000000000000000000000000000001",
+    ),
+    403,
+    "viewer cannot use ABI lookup",
+  );
+  await expectStatus(
+    abiLookup.lookupAbiForProject(editor, project.id, "not-an-address"),
+    400,
+    "editor passes the ABI lookup gate (bad address rejected offline)",
   );
   await expectStatus(
     dal.notebooks.saveBlocks(viewer, notebook.id, []),
@@ -340,6 +358,15 @@ async function main() {
     "foreign project contracts cannot be listed",
   );
   await expectStatus(
+    abiLookup.lookupAbiForProject(
+      owner,
+      "other-project",
+      "0x0000000000000000000000000000000000000001",
+    ),
+    404,
+    "foreign project cannot be used for ABI lookup",
+  );
+  await expectStatus(
     dal.stateViews.saveStateViews(owner, "other-project", []),
     404,
     "foreign state views cannot be written",
@@ -416,6 +443,15 @@ async function main() {
     dal.contracts.createContract(grantee, project.id, { name: "x", abi: [] }),
     404,
     "grant-only user cannot write outside their project",
+  );
+  await expectStatus(
+    abiLookup.lookupAbiForProject(
+      grantee,
+      project.id,
+      "0x0000000000000000000000000000000000000001",
+    ),
+    404,
+    "ABI lookup outside the grant is invisible",
   );
   await expectStatus(
     dal.projects.createProject(grantee, { name: "x", chainId: 1, rpcUrl: "y" }),

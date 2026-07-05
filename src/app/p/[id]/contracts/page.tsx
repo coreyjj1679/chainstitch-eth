@@ -14,6 +14,7 @@ import {
   type AbiConflict,
   type IncomingAbiFile,
 } from "@/components/contracts/abi-conflict-dialog";
+import { LookupContract } from "@/components/contracts/lookup-contract";
 import { MassAddressDialog } from "@/components/contracts/mass-address-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -223,8 +224,9 @@ export default function ContractsPage({ params }: { params: Promise<{ id: string
         <div>
           <h2 className="text-lg font-semibold">Address book</h2>
           <p className="text-sm text-muted-foreground">
-            Drop ABI JSON files (raw ABI arrays or Foundry/Hardhat artifacts),
-            then fill in the deployed addresses for chain {project?.chainId}.
+            Fetch verified ABIs by address, or drop ABI JSON files (raw ABI
+            arrays or Foundry/Hardhat artifacts) and fill in the deployed
+            addresses for chain {project?.chainId}.
           </p>
         </div>
         {missingCount > 0 && (
@@ -234,6 +236,8 @@ export default function ContractsPage({ params }: { params: Promise<{ id: string
           </Button>
         )}
       </div>
+
+      {project && <LookupContract project={project} contracts={contracts ?? []} />}
 
       <div
         {...getRootProps()}

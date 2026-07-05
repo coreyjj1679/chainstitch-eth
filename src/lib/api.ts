@@ -1,4 +1,5 @@
 import type {
+  AbiLookupResult,
   ContractEntry,
   InviteInfo,
   Me,
@@ -103,6 +104,11 @@ export const api = {
       }),
     remove: (id: string) => request(`/api/contracts/${id}`, { method: "DELETE" }),
   },
+  abiLookup: (projectId: string, address: string, chainId?: number) =>
+    request<AbiLookupResult>(
+      `/api/projects/${projectId}/abi-lookup?address=${address}` +
+        (chainId !== undefined ? `&chainId=${chainId}` : ""),
+    ),
   notebooks: {
     list: (projectId: string) =>
       request<NotebookMeta[]>(`/api/projects/${projectId}/notebooks`),
