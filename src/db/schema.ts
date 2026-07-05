@@ -272,6 +272,57 @@ export const notebookRunState = sqliteTable("notebook_run_state", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+/**
+ * Google-Docs-style edit history: full content snapshots (title, description,
+ * block list as one JSON array) recorded on every save. Consecutive saves by
+ * the same editor within a short window coalesce into one version (an
+ * "editing session"); restores append a new version instead of rewinding.
+ */
+export const notebookVersions = sqliteTable(
+  "notebook_versions",
+  {
+    id: text("id").primaryKey(),
+    notebookId: text("notebook_id")
+      .notNull()
+      .references(() => notebooks.id, { onDelete: "cascade" }),
+    /** Who made the edits; null for the pre-history baseline snapshot. */
+    editorId: text("editor_id"),
+    title: text("title").notNull(),
+    description: text("description"),
+    blocks: text("blocks").notNull(),
+    /** Set when this version was created by restoring an older one. */
+    restoredFrom: text("restored_from"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    /** Last coalesced save in this editing session (display timestamp). */
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("notebook_versions_notebook_idx").on(t.notebookId)],
+);
+
+/**
+ * Saved "Run all" outputs: one immutable record per completed run-all pass,
+ * with per-block entries (label + result) as one BigInt-safe JSON blob the
+ * server never parses. Summary counters are split out for cheap listing.
+ */
+export const notebookRuns = sqliteTable(
+  "notebook_runs",
+  {
+    id: text("id").primaryKey(),
+    notebookId: text("notebook_id")
+      .notNull()
+      .references(() => notebooks.id, { onDelete: "cascade" }),
+    ranBy: text("ran_by"),
+    /** True for "Simulate all" passes (writes eth_call'd, nothing sent). */
+    simulated: integer("simulated", { mode: "boolean" }).notNull().default(false),
+    succeeded: integer("succeeded").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    skipped: integer("skipped").notNull().default(0),
+    state: text("state").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("notebook_runs_notebook_idx").on(t.notebookId)],
+);
+
 export const stateViews = sqliteTable("state_views", {
   id: text("id").primaryKey(),
   projectId: text("project_id")

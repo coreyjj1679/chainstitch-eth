@@ -55,3 +55,12 @@ export function useStateViews(projectId: string) {
     enabled: !!projectId,
   });
 }
+
+/** Saved Run-all outputs across the project (sidebar group + run tabs). */
+export function useRuns(projectId: string) {
+  return useQuery({
+    queryKey: ["runs", projectId],
+    queryFn: () => api.runs.list(projectId),
+    enabled: !!projectId,
+  });
+}

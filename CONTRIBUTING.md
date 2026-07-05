@@ -47,8 +47,10 @@ npm run dev
    dev` must always work with no env vars, no login, no migration step.
    Anything that adds friction to local mode needs a very good reason.
 2. **Private keys never touch the server.** Writes are signed in the
-   browser wallet. Chain execution is client-side. Block results are never
-   persisted server-side. Don't add server-side signing or result storage.
+   browser wallet. Chain execution is client-side — the server never makes
+   chain calls or signs anything. Run outputs are stored only as opaque
+   blobs the client hands over (notebook run-state, saved runs); don't add
+   server-side signing or server-side execution.
 3. **Authorization lives in the DAL.** Every function in `src/server/dal/`
    takes an auth context and scopes queries by workspace. New endpoints
    must go through the DAL — never query the database from a route

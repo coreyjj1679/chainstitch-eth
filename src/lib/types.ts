@@ -265,3 +265,60 @@ export interface NotebookRunState {
   /** Newest-first past results per block */
   history: Record<string, BlockResult[]>;
 }
+
+// --- Edit history (Google-Docs-style versions) ------------------------------
+
+/** One entry in a notebook's edit history (metadata only). */
+export interface NotebookVersionMeta {
+  id: string;
+  notebookId: string;
+  title: string;
+  /** null for the pre-history baseline snapshot ("Original"). */
+  editorId: string | null;
+  editorName: string | null;
+  /** Version id this one was restored from, when applicable. */
+  restoredFrom: string | null;
+  blockCount: number;
+  /** Start of the editing session this version coalesces. */
+  createdAt: number;
+  /** Last save in the session — the display timestamp. */
+  updatedAt: number;
+}
+
+/** A full version snapshot: metadata plus the content itself. */
+export interface NotebookVersion extends NotebookVersionMeta {
+  description: string | null;
+  blocks: NotebookBlock[];
+}
+
+// --- Saved Run-all outputs ---------------------------------------------------
+
+/** One saved Run-all record, as listed in the sidebar (metadata only). */
+export interface SavedRunMeta {
+  id: string;
+  notebookId: string;
+  notebookTitle: string;
+  ranById: string | null;
+  ranByName: string | null;
+  /** True for "Simulate all" passes. */
+  simulated: boolean;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  createdAt: number;
+}
+
+/** Per-block entry inside a saved run, in execution order. */
+export interface SavedRunEntry {
+  blockId: string;
+  type: BlockType;
+  /** Label frozen at run time, so the record outlives notebook edits. */
+  label: string;
+  /** null when the run stopped before reaching this block. */
+  result: BlockResult | null;
+}
+
+/** The state blob of a saved run (BigInt-safe JSON on the wire). */
+export interface SavedRunRecord {
+  entries: SavedRunEntry[];
+}

@@ -153,6 +153,32 @@ CREATE TABLE IF NOT EXISTS notebook_run_state (
   state TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS notebook_versions (
+  id TEXT PRIMARY KEY,
+  notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+  editor_id TEXT,
+  title TEXT NOT NULL,
+  description TEXT,
+  blocks TEXT NOT NULL,
+  restored_from TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notebook_versions_notebook_idx
+  ON notebook_versions(notebook_id);
+CREATE TABLE IF NOT EXISTS notebook_runs (
+  id TEXT PRIMARY KEY,
+  notebook_id TEXT NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+  ran_by TEXT,
+  simulated INTEGER NOT NULL DEFAULT 0,
+  succeeded INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  state TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS notebook_runs_notebook_idx
+  ON notebook_runs(notebook_id);
 CREATE TABLE IF NOT EXISTS state_views (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

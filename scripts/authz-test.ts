@@ -50,6 +50,7 @@ async function main() {
     contracts: await import("../src/server/dal/contracts"),
     notebooks: await import("../src/server/dal/notebooks"),
     recipes: await import("../src/server/dal/recipes"),
+    runs: await import("../src/server/dal/runs"),
     stateViews: await import("../src/server/dal/state-views"),
     workspace: await import("../src/server/dal/workspace"),
   };
@@ -267,6 +268,76 @@ async function main() {
     (await dal.notebooks.getRunState(editor, notebook.id)) === null,
     "editor clears run state",
   );
+
+  // --- Edit history (versions) -----------------------------------------------
+  await dal.notebooks.saveBlocks(editor, notebook.id, [
+    { type: "markdown", config: { text: "hi v2" } },
+  ]);
+  const versions = await dal.notebooks.listVersions(viewer, notebook.id);
+  // Owner's first save records a baseline (pre-save state, no editor) plus
+  // their version; the editor's save above appends a third.
+  ok(versions.length >= 3, "viewer lists notebook versions");
+  const baseline = versions.find((v) => v.editorId === null);
+  ok(!!baseline, "first tracked edit captured a baseline version");
+  ok(
+    Array.isArray(
+      (await dal.notebooks.getVersion(viewer, notebook.id, baseline!.id)).blocks,
+    ),
+    "viewer reads a version snapshot",
+  );
+  await expectStatus(
+    dal.notebooks.restoreVersion(viewer, notebook.id, baseline!.id),
+    403,
+    "viewer cannot restore a version",
+  );
+  const restoredNotebook = await dal.notebooks.restoreVersion(
+    editor,
+    notebook.id,
+    baseline!.id,
+  );
+  ok(
+    restoredNotebook.blocks.length === 0,
+    "editor restores a version (baseline was empty)",
+  );
+  ok(
+    (await dal.notebooks.listVersions(editor, notebook.id)).some(
+      (v) => v.restoredFrom === baseline!.id,
+    ),
+    "restoring appends a new version instead of rewinding history",
+  );
+
+  // --- Saved Run-all outputs ---------------------------------------------------
+  const savedRun = await dal.runs.saveRun(editor, notebook.id, {
+    state: '{"entries":[]}',
+    simulated: false,
+    succeeded: 1,
+    failed: 0,
+    skipped: 0,
+  });
+  ok(!!savedRun.id, "editor saves a run output");
+  await expectStatus(
+    dal.runs.saveRun(viewer, notebook.id, { state: '{"entries":[]}' }),
+    403,
+    "viewer cannot save a run output",
+  );
+  ok(
+    (await dal.runs.listRuns(viewer, project.id)).some((r) => r.id === savedRun.id),
+    "viewer lists saved runs",
+  );
+  ok(
+    (await dal.runs.getRun(viewer, savedRun.id)).state === '{"entries":[]}',
+    "viewer reads a saved run",
+  );
+  await expectStatus(
+    dal.runs.deleteRun(viewer, savedRun.id),
+    403,
+    "viewer cannot delete a saved run",
+  );
+  await dal.runs.deleteRun(editor, savedRun.id);
+  ok(
+    !(await dal.runs.listRuns(editor, project.id)).some((r) => r.id === savedRun.id),
+    "editor deletes a saved run",
+  );
   ok(
     (await dal.recipes.updateRecipe(editor, recipe.id, { name: "Approve v2" })).name ===
       "Approve v2",
@@ -336,6 +407,21 @@ async function main() {
     dal.notebooks.saveRunState(owner, "other-notebook", "{}"),
     404,
     "foreign notebook run state cannot be written",
+  );
+  await expectStatus(
+    dal.notebooks.listVersions(owner, "other-notebook"),
+    404,
+    "foreign notebook versions are invisible",
+  );
+  await expectStatus(
+    dal.runs.saveRun(owner, "other-notebook", { state: '{"entries":[]}' }),
+    404,
+    "foreign notebook runs cannot be written",
+  );
+  await expectStatus(
+    dal.runs.listRuns(owner, "other-project"),
+    404,
+    "foreign project runs cannot be listed",
   );
   await expectStatus(
     dal.recipes.listRecipes(owner, "other-project"),

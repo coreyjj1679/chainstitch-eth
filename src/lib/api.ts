@@ -6,9 +6,12 @@ import type {
   MemberInfo,
   NotebookBlock,
   NotebookMeta,
+  NotebookVersion,
+  NotebookVersionMeta,
   Project,
   ProjectAccess,
   Recipe,
+  SavedRunMeta,
   ShareLink,
   StateLayout,
   WorkspaceRole,
@@ -140,6 +143,39 @@ export const api = {
       }),
     clearRunState: (id: string) =>
       request(`/api/notebooks/${id}/run-state`, { method: "DELETE" }),
+    /** Google-Docs-style edit history. */
+    versions: {
+      list: (id: string) =>
+        request<NotebookVersionMeta[]>(`/api/notebooks/${id}/versions`),
+      get: (id: string, versionId: string) =>
+        request<NotebookVersion>(`/api/notebooks/${id}/versions/${versionId}`),
+      restore: (id: string, versionId: string) =>
+        request<NotebookMeta & { blocks: NotebookBlock[] }>(
+          `/api/notebooks/${id}/versions/${versionId}`,
+          { method: "POST" },
+        ),
+    },
+    /** Save one completed Run-all output (BigInt-safe JSON state blob). */
+    saveRun: (
+      id: string,
+      data: {
+        state: string;
+        simulated: boolean;
+        succeeded: number;
+        failed: number;
+        skipped: number;
+      },
+    ) =>
+      request<SavedRunMeta>(`/api/notebooks/${id}/runs`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+  },
+  runs: {
+    list: (projectId: string) =>
+      request<SavedRunMeta[]>(`/api/projects/${projectId}/runs`),
+    get: (id: string) => request<SavedRunMeta & { state: string }>(`/api/runs/${id}`),
+    remove: (id: string) => request(`/api/runs/${id}`, { method: "DELETE" }),
   },
   recipes: {
     list: (projectId: string) => request<Recipe[]>(`/api/projects/${projectId}/recipes`),
