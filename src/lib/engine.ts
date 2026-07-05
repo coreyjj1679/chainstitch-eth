@@ -406,8 +406,12 @@ async function runRpc(block: NotebookBlock, ctx: RunContext): Promise<RunOutcome
 
 /** Matches kept per event query (newest win) — bounds value size & rendering. */
 const MAX_EVENT_MATCHES = 200;
-/** Default lookback when no fromBlock is given (public RPCs cap wide scans). */
-const DEFAULT_EVENT_LOOKBACK = 999n;
+/**
+ * Default lookback when no fromBlock is given. Kept under ~128 blocks: pruned
+ * public RPCs (publicnode et al.) reject wider getLogs scans as "archive"
+ * requests, and the zero-config path must work everywhere.
+ */
+const DEFAULT_EVENT_LOOKBACK = 99n;
 
 const BLOCK_TAGS = new Set(["earliest", "latest", "pending", "safe", "finalized"]);
 

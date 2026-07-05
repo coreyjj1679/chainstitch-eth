@@ -130,8 +130,8 @@ export function EventBlock({
           </Label>
           <Input
             className="h-8 font-mono text-xs"
-            placeholder="last ~1000 blocks"
-            title='A block number, "earliest", or {{variable}} — empty scans the recent ~1000 blocks'
+            placeholder="last ~100 blocks"
+            title='A block number, "earliest", or {{variable}} — empty scans the recent ~100 blocks (wider ranges need an archive-capable RPC)'
             value={config.fromBlock ?? ""}
             onChange={(e) => onChange({ fromBlock: e.target.value })}
           />

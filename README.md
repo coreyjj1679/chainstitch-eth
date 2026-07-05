@@ -177,6 +177,21 @@ after the notebook changes.
   <br><sub>A saved run in its own tab — the frozen <code>Out [n]</code> of every block from that pass. The <b>Saved runs</b> group sits at the bottom of the sidebar.</sub>
 </p>
 
+### Decoded events & receipts
+
+Every write receipt auto-decodes its logs against the address book into an
+**Events** tab on the result — the "did the right event fire?" check of
+every flow (the emitting contract's ABI is tried first, then the rest;
+unmatched logs stay listed as raw topics). The **Events block** does the
+reverse lookup: query a contract event over a block range, filter on its
+indexed params (with `{{variable}}` support), and use the decoded matches
+downstream via `{{swaps[0].args.amount0}}`-style paths.
+
+<p align="center">
+  <img src="screenshots/events-block.png" alt="An Events block querying Uniswap V3 Swap logs, with indexed-param filters, a block range, and decoded matches saved as a variable">
+  <br><sub>An Events block pulling recent <code>Swap</code> logs off the USDC/WETH pool — every match decodes to <code>{ event, blockNumber, txHash, args }</code> and lands in <code>{{swaps}}</code>. Write receipts get the same decoding in an <b>Events</b> tab.</sub>
+</p>
+
 ### And more
 
 - **Document tabs & project overview** — notebooks, recipes and saved runs
@@ -188,12 +203,6 @@ after the notebook changes.
   self-hosting, right inside the app (public on team-mode instances).
 - **Write blocks simulate first** — revert reasons surface *before* the wallet
   prompt — then send and await the receipt.
-- **Decoded events & receipts** — every write receipt auto-decodes its logs
-  against the address book into an **Events** tab, so "did the right event
-  fire?" is answered at a glance. The **Events block** does the reverse
-  lookup: query a contract event over a block range (with indexed-topic
-  filters and `{{variable}}` support) and use the decoded matches downstream,
-  e.g. `{{logs[0].args.to}}`.
 - **Simulate as anyone** — dry-run entire notebooks as any address via
   `eth_call`; on anvil forks, impersonated writes need no keys at all.
 - **Text** blocks (markdown), **variable** blocks (named constants), and
@@ -267,6 +276,12 @@ docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d --build
    (Already have nginx/Traefik/Caddy on the box? Skip the overlay, run
    `docker compose up -d --build`, and reverse-proxy `localhost:3000`
    yourself — or see [Deploy with Node](#deploy-with-node).)
+
+   Tip: every compose command needs the same `-f` file set (`logs`, `ps`,
+   `pull`, …). Save the typing by pinning it once in `.env`:
+   `COMPOSE_FILE=docker-compose.yml:docker-compose.tls.yml` (append
+   `:docker-compose.image.yml` if you run the published image) — then plain
+   `docker compose logs -f caddy` just works.
 4. **Sign in and share.** Open the domain, sign in with an `OWNER_WALLETS`
    wallet, and hand out access at whichever radius fits: the whole workspace
    (**Settings** → invite by wallet + role), a single project (its **Share**
