@@ -17,6 +17,7 @@ import {
 } from "wagmi/actions";
 import { coerceArg, eventSignature, functionSignature, getEvents, getFunctions } from "@/lib/abi";
 import { getRpcMethod, type RpcParamSpec } from "@/lib/rpc-methods";
+import { decodeCallTree, traceCall, type CallFrame } from "@/lib/trace";
 import { interpolate } from "@/lib/variables";
 import type {
   CallConfig,
@@ -65,6 +66,13 @@ export interface RunOutcome {
   txDetails?: Record<string, unknown>;
   /** Receipt logs decoded against the address book */
   events?: DecodedEventEntry[];
+  /** Decoded call tree (attached to a reverting write/simulate). */
+  trace?: CallFrame;
+}
+
+/** An execution error carrying a decoded call trace, when one was obtained. */
+export interface TracedError extends Error {
+  trace?: CallFrame;
 }
 
 /** Best-effort chain head for run metadata; never fails the block run. */
@@ -261,6 +269,42 @@ export function decodeReceiptLogs(
   });
 }
 
+/**
+ * Run a write branch, and if it throws (typically a revert), best-effort trace
+ * the same call and attach the decoded tree to the error so the UI can show
+ * where it reverted. `debug_traceCall` is not universal — a null trace (pruned
+ * RPC) just leaves the plain error untouched.
+ */
+async function tryWithTrace<T extends RunOutcome>(
+  ctx: RunContext,
+  contract: ContractEntry,
+  functionName: string,
+  args: unknown[],
+  value: bigint | undefined,
+  from: `0x${string}` | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    try {
+      const data = encodeFunctionData({ abi: contract.abi, functionName, args });
+      const raw = await traceCall(ctx.publicClient, {
+        from,
+        to: contract.address as `0x${string}`,
+        data,
+        value,
+      });
+      if (raw && error instanceof Error) {
+        (error as TracedError).trace = decodeCallTree(raw, ctx.contracts);
+      }
+    } catch {
+      // Tracing is a bonus; never let it replace the real revert error.
+    }
+    throw error;
+  }
+}
+
 /** Ensure a caller address is an EOA (no deployed bytecode). */
 async function assertEoa(client: PublicClient, address: `0x${string}`): Promise<void> {
   const code = await client.getCode({ address });
@@ -294,67 +338,72 @@ async function runWrite(block: NotebookBlock, ctx: RunContext): Promise<RunOutco
     if (!caller) {
       throw new Error("Provide a caller address to simulate writes");
     }
-    await assertEoa(ctx.publicClient, caller);
-    const [{ result }, blockNumber] = await Promise.all([
-      ctx.publicClient.simulateContract({
-        address: contract.address as `0x${string}`,
-        abi: contract.abi,
-        functionName: config.functionName,
-        args,
-        account: caller,
-        ...(value !== undefined ? { value } : {}),
-      }),
-      headBlockNumber(ctx.publicClient),
-    ]);
-    return {
-      value: result === undefined ? "ok (no return value)" : result,
-      simulated: true,
-      kind: "Write (simulated — nothing sent on-chain)",
-      sender: caller,
-      blockNumber,
-      details: {
-        ...baseDetails,
-        "Return value":
-          result === undefined ? "(no return value)" : namedOutputs(fn, result),
-      },
-    };
+    return tryWithTrace(ctx, contract, config.functionName, args, value, caller, async () => {
+      await assertEoa(ctx.publicClient, caller);
+      const [{ result }, blockNumber] = await Promise.all([
+        ctx.publicClient.simulateContract({
+          address: contract.address as `0x${string}`,
+          abi: contract.abi,
+          functionName: config.functionName,
+          args,
+          account: caller,
+          ...(value !== undefined ? { value } : {}),
+        }),
+        headBlockNumber(ctx.publicClient),
+      ]);
+      return {
+        value: result === undefined ? "ok (no return value)" : result,
+        simulated: true,
+        kind: "Write (simulated — nothing sent on-chain)",
+        sender: caller,
+        blockNumber,
+        details: {
+          ...baseDetails,
+          "Return value":
+            result === undefined ? "(no return value)" : namedOutputs(fn, result),
+        },
+      };
+    });
   }
 
   // Impersonated execution: real tx sent as `sender` via anvil cheatcodes.
   if (ctx.impersonate && ctx.sender) {
-    const client = ctx.publicClient;
-    await assertEoa(client, ctx.sender);
-    await client.request({
-      method: "anvil_impersonateAccount" as never,
-      params: [ctx.sender] as never,
+    const sender = ctx.sender;
+    return tryWithTrace(ctx, contract, config.functionName, args, value, sender, async () => {
+      const client = ctx.publicClient;
+      await assertEoa(client, sender);
+      await client.request({
+        method: "anvil_impersonateAccount" as never,
+        params: [sender] as never,
+      });
+      const data = encodeFunctionData({
+        abi: contract.abi,
+        functionName: config.functionName,
+        args,
+      });
+      const txHash = (await client.request({
+        method: "eth_sendTransaction" as never,
+        params: [
+          {
+            from: sender,
+            to: contract.address,
+            data,
+            ...(value !== undefined ? { value: numberToHex(value) } : {}),
+          },
+        ] as never,
+      })) as `0x${string}`;
+      const receipt = await client.waitForTransactionReceipt({ hash: txHash });
+      return {
+        value: receipt,
+        txHash,
+        kind: "Write (impersonated via anvil)",
+        sender,
+        blockNumber: receipt.blockNumber,
+        details: baseDetails,
+        txDetails: receiptDetails(txHash, receipt),
+        events: decodeReceiptLogs(receipt.logs, ctx.contracts),
+      };
     });
-    const data = encodeFunctionData({
-      abi: contract.abi,
-      functionName: config.functionName,
-      args,
-    });
-    const txHash = (await client.request({
-      method: "eth_sendTransaction" as never,
-      params: [
-        {
-          from: ctx.sender,
-          to: contract.address,
-          data,
-          ...(value !== undefined ? { value: numberToHex(value) } : {}),
-        },
-      ] as never,
-    })) as `0x${string}`;
-    const receipt = await client.waitForTransactionReceipt({ hash: txHash });
-    return {
-      value: receipt,
-      txHash,
-      kind: "Write (impersonated via anvil)",
-      sender: ctx.sender,
-      blockNumber: receipt.blockNumber,
-      details: baseDetails,
-      txDetails: receiptDetails(txHash, receipt),
-      events: decodeReceiptLogs(receipt.logs, ctx.contracts),
-    };
   }
 
   // Local key signer (beta): sign & broadcast with a session-only private key,
@@ -362,8 +411,52 @@ async function runWrite(block: NotebookBlock, ctx: RunContext): Promise<RunOutco
   // anvil impersonation (real testnets/mainnet).
   if (ctx.localSigner) {
     const { account, walletClient } = ctx.localSigner;
-    // Simulate first so revert reasons surface (and gas/nonce are prepared).
-    const { request } = await ctx.publicClient.simulateContract({
+    return tryWithTrace(
+      ctx,
+      contract,
+      config.functionName,
+      args,
+      value,
+      account.address,
+      async () => {
+        // Simulate first so revert reasons surface (and gas/nonce are prepared).
+        const { request } = await ctx.publicClient.simulateContract({
+          address: contract.address as `0x${string}`,
+          abi: contract.abi,
+          functionName: config.functionName,
+          args,
+          account,
+          ...(value !== undefined ? { value } : {}),
+        });
+        const txHash = await walletClient.writeContract(
+          request as Parameters<WalletClient["writeContract"]>[0],
+        );
+        const receipt = await ctx.publicClient.waitForTransactionReceipt({
+          hash: txHash,
+        });
+        return {
+          value: receipt,
+          txHash,
+          kind: "Write (local key signer)",
+          sender: account.address,
+          blockNumber: receipt.blockNumber,
+          details: baseDetails,
+          txDetails: receiptDetails(txHash, receipt),
+          events: decodeReceiptLogs(receipt.logs, ctx.contracts),
+        };
+      },
+    );
+  }
+
+  if (!ctx.wagmiConfig || !ctx.account) {
+    throw new Error("Connect a wallet to run write blocks");
+  }
+  const wallet = ctx.wagmiConfig;
+  const account = ctx.account;
+
+  return tryWithTrace(ctx, contract, config.functionName, args, value, account, async () => {
+    // Simulate first so revert reasons surface before the wallet prompt.
+    const { request } = await simulateContract(wallet, {
       address: contract.address as `0x${string}`,
       abi: contract.abi,
       functionName: config.functionName,
@@ -371,47 +464,19 @@ async function runWrite(block: NotebookBlock, ctx: RunContext): Promise<RunOutco
       account,
       ...(value !== undefined ? { value } : {}),
     });
-    const txHash = await walletClient.writeContract(
-      request as Parameters<WalletClient["writeContract"]>[0],
-    );
-    const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash: txHash });
+    const txHash = await writeContract(wallet, request);
+    const receipt = await waitForTransactionReceipt(wallet, { hash: txHash });
     return {
       value: receipt,
       txHash,
-      kind: "Write (local key signer)",
-      sender: account.address,
+      kind: "Write (wallet transaction)",
+      sender: account,
       blockNumber: receipt.blockNumber,
       details: baseDetails,
       txDetails: receiptDetails(txHash, receipt),
       events: decodeReceiptLogs(receipt.logs, ctx.contracts),
     };
-  }
-
-  if (!ctx.wagmiConfig || !ctx.account) {
-    throw new Error("Connect a wallet to run write blocks");
-  }
-
-  // Simulate first so revert reasons surface before the wallet prompt.
-  const { request } = await simulateContract(ctx.wagmiConfig, {
-    address: contract.address as `0x${string}`,
-    abi: contract.abi,
-    functionName: config.functionName,
-    args,
-    account: ctx.account,
-    ...(value !== undefined ? { value } : {}),
   });
-  const txHash = await writeContract(ctx.wagmiConfig, request);
-  const receipt = await waitForTransactionReceipt(ctx.wagmiConfig, { hash: txHash });
-  return {
-    value: receipt,
-    txHash,
-    kind: "Write (wallet transaction)",
-    sender: ctx.account,
-    blockNumber: receipt.blockNumber,
-    details: baseDetails,
-    txDetails: receiptDetails(txHash, receipt),
-    events: decodeReceiptLogs(receipt.logs, ctx.contracts),
-  };
 }
 
 async function runRpc(block: NotebookBlock, ctx: RunContext): Promise<RunOutcome> {

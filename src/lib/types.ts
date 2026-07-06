@@ -1,4 +1,5 @@
 import type { Abi } from "viem";
+import type { CallFrame } from "@/lib/trace";
 
 export type BlockType =
   | "read"
@@ -291,6 +292,8 @@ export interface BlockResult {
   txDetails?: Record<string, unknown>;
   /** Receipt logs decoded against the address book, for the Events tab */
   events?: DecodedEventEntry[];
+  /** Decoded call tree for a failed write/simulate, for the Trace tab. */
+  trace?: CallFrame;
 }
 
 /** Per-notebook run state persisted Jupyter-style (outputs survive reloads). */

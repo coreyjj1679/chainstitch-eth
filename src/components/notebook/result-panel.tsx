@@ -10,6 +10,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { displayValue } from "@/lib/serialize";
+import { findRevertCause, type CallFrame } from "@/lib/trace";
 import { useNotebookStore } from "@/stores/notebook-store";
 import type { BlockResult, DecodedEventEntry, Project } from "@/lib/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -124,6 +125,114 @@ function EventsList({ events }: { events: DecodedEventEntry[] }) {
   );
 }
 
+/** One frame of a decoded call tree; recurses into its inner calls. */
+function TraceFrame({ frame }: { frame: CallFrame }) {
+  const [open, setOpen] = useState(true);
+  const hasChildren = frame.children.length > 0;
+
+  const argText =
+    frame.args && frame.args.length > 0
+      ? frame.args.map((a) => displayValue(a)).join(", ").replace(/\s+/g, " ")
+      : "";
+  let label: string;
+  if (frame.functionName) {
+    label = `${frame.contract ?? "?"}.${frame.functionName}(${argText})`;
+  } else if (frame.selector && frame.selector !== "0x") {
+    label = `${frame.contract ?? "?"}.${frame.selector}…`;
+  } else if (frame.contract) {
+    label = `${frame.type.toLowerCase()} ${frame.contract}`;
+  } else {
+    label = frame.type;
+  }
+  // Only tag the non-plain call kinds (staticcall/delegatecall/create/…).
+  const kindTag = frame.type !== "CALL" ? frame.type.toLowerCase() : undefined;
+
+  return (
+    <div className="grid gap-1">
+      <div
+        className={cn(
+          "flex items-start gap-1.5 font-mono text-[11px] leading-5",
+          frame.reverted ? "text-destructive" : "text-foreground/90",
+        )}
+      >
+        {hasChildren ? (
+          <button
+            className="mt-0.5 shrink-0 text-muted-foreground hover:text-foreground"
+            onClick={() => setOpen((v) => !v)}
+            aria-label={open ? "Collapse" : "Expand"}
+          >
+            {open ? (
+              <ChevronDown className="size-3" />
+            ) : (
+              <ChevronRight className="size-3" />
+            )}
+          </button>
+        ) : (
+          <span className="mt-0.5 w-3 shrink-0" />
+        )}
+        <span className="min-w-0 flex-1 break-all" title={frame.signature}>
+          {kindTag && (
+            <span className="mr-1 rounded border border-border/60 bg-muted/40 px-1 text-[10px] text-muted-foreground">
+              {kindTag}
+            </span>
+          )}
+          {label}
+          {frame.reverted && (
+            <span className="ml-1 rounded border border-destructive/40 bg-destructive/10 px-1 text-[10px]">
+              reverted
+            </span>
+          )}
+        </span>
+        {frame.gasUsed !== undefined && (
+          <span className="shrink-0 text-[10px] text-muted-foreground/60">
+            {frame.gasUsed.toString()} gas
+          </span>
+        )}
+      </div>
+      {frame.reverted && frame.revertReason && (
+        <p className="ml-4 break-all font-mono text-[10px] text-destructive/80">
+          ↳ {frame.revertReason}
+        </p>
+      )}
+      {frame.value !== undefined && frame.value > 0n && (
+        <p className="ml-4 font-mono text-[10px] text-muted-foreground/60">
+          ↳ value: {frame.value.toString()} wei
+        </p>
+      )}
+      {hasChildren && open && (
+        <div className="ml-2 border-l border-border/40 pl-2">
+          {frame.children.map((child, i) => (
+            <TraceFrame key={i} frame={child} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Decoded call tree with the reverting cause surfaced on top. */
+function CallTree({ trace }: { trace: CallFrame }) {
+  const cause = findRevertCause(trace);
+  return (
+    <div className="grid gap-2">
+      {cause?.reverted && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5">
+          <p className="break-all font-mono text-[11px] text-destructive">
+            Reverted
+            {cause.contract
+              ? ` in ${cause.contract}${cause.functionName ? `.${cause.functionName}` : ""}`
+              : ""}
+            {cause.revertReason ? `: ${cause.revertReason}` : ""}
+          </p>
+        </div>
+      )}
+      <div className="max-h-72 overflow-auto">
+        <TraceFrame frame={trace} />
+      </div>
+    </div>
+  );
+}
+
 function statusTime(ranAt?: number): string {
   if (!ranAt) return "";
   const d = new Date(ranAt);
@@ -227,6 +336,7 @@ function DetailTabs({
     ...(result.events && result.events.length > 0
       ? [{ value: "events", label: `Events (${result.events.length})` }]
       : []),
+    ...(result.trace ? [{ value: "trace", label: "Trace" }] : []),
     ...(result.txDetails ? [{ value: "tx", label: "Transaction" }] : []),
     { value: "run", label: "Run" },
     { value: "history", label: `History (${history.length})` },
@@ -255,6 +365,11 @@ function DetailTabs({
       {result.events && result.events.length > 0 && (
         <TabsContent value="events">
           <EventsList events={result.events} />
+        </TabsContent>
+      )}
+      {result.trace && (
+        <TabsContent value="trace">
+          <CallTree trace={result.trace} />
         </TabsContent>
       )}
       {result.txDetails && (

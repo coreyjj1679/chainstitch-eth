@@ -6,6 +6,7 @@ import solc from "solc";
 import {
   createPublicClient,
   createWalletClient,
+  encodeErrorResult,
   http,
   publicActions,
   type Abi,
@@ -14,23 +15,36 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { foundry } from "viem/chains";
 import { runBlock } from "../src/lib/engine";
+import { decodeRevertReason, findRevertCause, type CallFrame } from "../src/lib/trace";
+import { importTransaction } from "../src/lib/tx-import";
 import { evaluateCondition } from "../src/lib/condition";
 import { interpolate } from "../src/lib/variables";
 import { coerceArg } from "../src/lib/abi";
 import { generateBlockCode } from "../src/lib/codegen";
-import type { ContractEntry, NotebookBlock, Project } from "../src/lib/types";
+import type { CallConfig, ContractEntry, NotebookBlock, Project } from "../src/lib/types";
 
 const SOURCE = `// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 contract Counter {
     uint256 public number;
     string public name = "SmokeCounter";
+    error TooBig(uint256 provided, uint256 max);
     event NumberSet(address indexed setter, uint256 newNumber);
     function setNumber(uint256 newNumber) public {
         number = newNumber;
         emit NumberSet(msg.sender, newNumber);
     }
     function increment() public { number++; }
+    // Reverts with a standard Error(string).
+    function setChecked(uint256 newNumber) public {
+        require(newNumber < 1000, "too large");
+        number = newNumber;
+    }
+    // Reverts with a custom error.
+    function setStrict(uint256 newNumber) public {
+        if (newNumber > 500) revert TooBig(newNumber, 500);
+        number = newNumber;
+    }
 }`;
 
 function assert(condition: unknown, label: string) {
@@ -412,6 +426,116 @@ async function main() {
   );
   const pyEvents = generateBlockCode(eventBlock, [contract], project, "python");
   assert(pyEvents.includes("get_logs"), "python event codegen uses get_logs");
+
+  // 12. revert-reason decoding (unit): custom errors + standard Error(string)
+  const customData = encodeErrorResult({ abi, errorName: "TooBig", args: [999n, 500n] });
+  assert(
+    decodeRevertReason(customData, [contract]) === "TooBig(999, 500)",
+    "decodeRevertReason decodes a custom error against the address book",
+  );
+  const errorAbi = [
+    { type: "error", name: "Error", inputs: [{ name: "", type: "string" }] },
+  ] as const satisfies Abi;
+  const stringData = encodeErrorResult({
+    abi: errorAbi,
+    errorName: "Error",
+    args: ["too large"],
+  });
+  assert(
+    decodeRevertReason(stringData, []) === "too large",
+    "decodeRevertReason decodes a standard Error(string) with no ABI",
+  );
+
+  // 13. decoded revert trace attaches to a failed simulate (Tenderly-bar UX)
+  const anvilSender = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" as const;
+  try {
+    await runBlock(
+      {
+        id: "b11",
+        type: "write",
+        config: { contractId: "c1", functionName: "setChecked", args: ["2000"] },
+        outputVariable: null,
+      },
+      { publicClient, contracts: [contract], scope, mode: "simulate", sender: anvilSender },
+    );
+    assert(false, "reverting simulate should throw");
+  } catch (e) {
+    const trace = (e as { trace?: CallFrame }).trace;
+    assert(!!trace, "failed simulate attaches a decoded call trace");
+    const cause = findRevertCause(trace!);
+    assert(cause?.reverted === true, "trace flags the reverting frame");
+    assert(
+      cause?.functionName === "setChecked" && cause?.contract === "Counter",
+      "trace decodes the reverting call against the address book",
+    );
+    assert(
+      !!cause?.revertReason && cause.revertReason.length > 0,
+      `reverting frame carries a reason (got ${cause?.revertReason})`,
+    );
+  }
+
+  // 14. local key signer: write is signed & sent with a private key, no wallet
+  const signerAccount = privateKeyToAccount(
+    // anvil default account #1
+    "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+  );
+  const signerWallet = createWalletClient({
+    account: signerAccount,
+    chain: foundry,
+    transport: http("http://127.0.0.1:8545"),
+  });
+  const keyOutcome = await runBlock(
+    {
+      id: "b12",
+      type: "write",
+      config: { contractId: "c1", functionName: "setNumber", args: ["314"] },
+      outputVariable: null,
+    },
+    {
+      publicClient,
+      contracts: [contract],
+      scope,
+      mode: "execute",
+      localSigner: { account: signerAccount, walletClient: signerWallet },
+    },
+  );
+  assert(!!keyOutcome.txHash, "local-signer write returns a tx hash");
+  assert(
+    String(keyOutcome.sender).toLowerCase() === signerAccount.address.toLowerCase(),
+    "local-signer write is sent from the key's address",
+  );
+  const afterKey = await publicClient.readContract({ address, abi, functionName: "number" });
+  assert(afterKey === 314n, "local-signer write changed on-chain state");
+
+  // 15. tx-hash import: decode the key-signed tx back into notebook blocks
+  const imported = await importTransaction({
+    txHash: keyOutcome.txHash!,
+    publicClient,
+    contracts: [contract],
+    // Counter is already in the book; the resolver is only for unknowns.
+    resolveAbi: async () => null,
+  });
+  assert(imported.summary.traced === true, "tx import used debug_traceTransaction");
+  assert(imported.summary.status === "success", "tx import reads the receipt status");
+  assert(
+    String(imported.summary.from).toLowerCase() === signerAccount.address.toLowerCase(),
+    "tx import records the sender",
+  );
+  const importedWrites = imported.blocks.filter((b) => b.type === "write");
+  assert(importedWrites.length === 1, "tx import produced one write block");
+  const importedCall = importedWrites[0].config as CallConfig;
+  assert(
+    importedCall.functionName === "setNumber" && importedCall.args[0] === "314",
+    "tx import decoded setNumber(314) with its argument",
+  );
+  assert(
+    importedCall.contractId === "c1",
+    "tx import wired the block to the address-book contract",
+  );
+  assert(
+    imported.blocks.some((b) => b.type === "sender"),
+    "tx import wraps calls in a sender group for the original sender",
+  );
 
   console.log("\nAll smoke tests passed.");
 }

@@ -2,7 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createPublicClient, http, isAddress, type PublicClient } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  isAddress,
+  type PublicClient,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { useAccount, useConfig } from "wagmi";
 import {
   DndContext,
@@ -30,6 +37,7 @@ import {
   GitBranch,
   History,
   Info,
+  KeyRound,
   ListRestart,
   Pencil,
   Play,
@@ -41,10 +49,11 @@ import {
   StepForward,
   UserRound,
   Variable,
+  Waypoints,
 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { runBlock, shortError } from "@/lib/engine";
+import { runBlock, shortError, type TracedError } from "@/lib/engine";
 import { evaluateCondition } from "@/lib/condition";
 import { interpolate } from "@/lib/variables";
 import {
@@ -59,6 +68,7 @@ import { parseBigIntSafe, stringifyBigIntSafe } from "@/lib/serialize";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
 import { chainForProject } from "@/components/wallet/project-web3-provider";
 import { useNotebookStore } from "@/stores/notebook-store";
+import { useSignerStore } from "@/stores/signer";
 import { BlockShell } from "@/components/notebook/block-shell";
 import { BlockSummary } from "@/components/notebook/block-summary";
 import { CallBlock } from "@/components/notebook/call-block";
@@ -71,6 +81,8 @@ import { IfBlock } from "@/components/notebook/if-block";
 import { RecipeBlock } from "@/components/notebook/recipe-block";
 import { CodePanel } from "@/components/notebook/code-panel";
 import { ImportTestDialog } from "@/components/notebook/import-test-dialog";
+import { ImportTxDialog } from "@/components/notebook/import-tx-dialog";
+import { SignerDialog } from "@/components/notebook/signer-dialog";
 import { SaveRecipeDialog } from "@/components/notebook/recipe-dialogs";
 import { VersionHistoryDialog } from "@/components/notebook/version-history-dialog";
 import type {
@@ -340,6 +352,9 @@ export function NotebookEditor({
   const [recipeAnchorId, setRecipeAnchorId] = useState<string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [signerOpen, setSignerOpen] = useState(false);
+  const [txImportOpen, setTxImportOpen] = useState(false);
+  const signer = useSignerStore((s) => s.signers[project.id]);
 
   const { data: notebook, isLoading: notebookLoading } = useQuery({
     queryKey: ["notebook", docId],
@@ -586,6 +601,24 @@ export function NotebookEditor({
           }
         }
 
+        // Session-only local key signer (beta): build a wallet client from the
+        // in-memory key so writes broadcast without a wallet prompt. Simulate
+        // mode and impersonation take precedence in the engine.
+        const stored = useSignerStore.getState().signers[project.id];
+        const localSigner = stored
+          ? (() => {
+              const signerAccount = privateKeyToAccount(stored.privateKey);
+              return {
+                account: signerAccount,
+                walletClient: createWalletClient({
+                  account: signerAccount,
+                  chain: chainForProject(project),
+                  transport: http(project.rpcUrl),
+                }),
+              };
+            })()
+          : undefined;
+
         const outcome = await runBlock(block, {
           publicClient,
           contracts,
@@ -595,6 +628,7 @@ export function NotebookEditor({
           mode,
           sender,
           impersonate,
+          localSigner,
         });
         if (block.outputVariable) setScopeVariable(block.outputVariable, outcome.value);
         return {
@@ -615,12 +649,21 @@ export function NotebookEditor({
         return {
           status: "error",
           error: shortError(e),
+          trace: (e as TracedError).trace,
           durationMs: Math.round(performance.now() - started),
           ranAt: Date.now(),
         };
       }
     },
-    [publicClient, contracts, wagmiConfig, account, setScopeVariable, senderScopeFor],
+    [
+      publicClient,
+      contracts,
+      wagmiConfig,
+      account,
+      project,
+      setScopeVariable,
+      senderScopeFor,
+    ],
   );
 
   const runCallBlock = useCallback(
@@ -1515,6 +1558,28 @@ export function NotebookEditor({
           <FlaskConical data-icon="inline-start" />
           Simulate all
         </Button>
+        {signer ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSignerOpen(true)}
+            className="border-amber-400/40 bg-amber-400/10 font-mono text-amber-400 hover:bg-amber-400/20 hover:text-amber-300"
+            title={`Signing writes with a session key (${signer.address}) — Run all sends with no wallet prompts. Click to manage.`}
+          >
+            <KeyRound data-icon="inline-start" />
+            {signer.address.slice(0, 6)}…{signer.address.slice(-4)}
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setSignerOpen(true)}
+            aria-label="Private-key signer"
+            title="Sign writes with a session key — run many writes with no wallet prompts (beta)"
+          >
+            <KeyRound />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon-sm"
@@ -1652,6 +1717,17 @@ export function NotebookEditor({
             <Sparkles />
           </Button>
         )}
+        {!readOnly && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => setTxImportOpen(true)}
+            aria-label="Import a transaction"
+            title="Import a transaction: paste a tx hash, decode its call tree into blocks (ABIs auto-fetched)"
+          >
+            <Waypoints />
+          </Button>
+        )}
 
         <span className="ml-auto flex items-center gap-2 pr-2 text-xs text-muted-foreground/60">
           <span>
@@ -1777,6 +1853,18 @@ export function NotebookEditor({
           onInsert={handleAiImport}
         />
       )}
+
+      {!readOnly && (
+        <ImportTxDialog
+          open={txImportOpen}
+          onOpenChange={setTxImportOpen}
+          project={project}
+          contracts={contracts}
+          onInsert={handleAiImport}
+        />
+      )}
+
+      <SignerDialog open={signerOpen} onOpenChange={setSignerOpen} project={project} />
 
       {showNotebookCode && (
         <div className="mb-6 rounded-xl border p-4">
