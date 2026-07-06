@@ -11,7 +11,7 @@ import { DocsToc } from "./toc";
 export const metadata: Metadata = {
   title: "Docs — Chainstitch",
   description:
-    "How to use and self-host Chainstitch: notebooks, blocks, variables, recipes, the address book, anvil workflows, security, and team mode.",
+    "How to use and self-host Chainstitch: notebooks, blocks, variables, recipes, the address book, the MCP server for coding agents, anvil workflows, security, and team mode.",
 };
 
 const TOC = [
@@ -21,6 +21,7 @@ const TOC = [
   ["recipes", "Recipes"],
   ["state", "State tab"],
   ["codegen", "Codegen & AI import"],
+  ["agents", "AI agents & MCP"],
   ["anvil", "Local chains & forks"],
   ["team-mode", "Team mode & self-hosting"],
   ["security", "Security & your data"],
@@ -298,6 +299,61 @@ export default function DocsPage() {
               cells, asserts become condition checks. Bring your own Google AI
               Studio key (free tier) — calls go straight from your browser to
               Google and never touch the Chainstitch server.
+            </p>
+          </Section>
+
+          <Section id="agents" title="AI agents & MCP">
+            <p>
+              Every instance is an{" "}
+              <strong>MCP server (Model Context Protocol)</strong> at{" "}
+              <Code>/api/mcp</Code>: connect Cursor, Claude Code or any
+              MCP-capable coding agent and it can read your address book,
+              author notebooks, and pull any notebook back as generated
+              source. No extra process, no API key in local mode — it&apos;s
+              the app you already have running.
+            </p>
+            <Pre>{`// .cursor/mcp.json (or your agent's equivalent)
+{
+  "mcpServers": {
+    "chainstitch": { "url": "http://localhost:3000/api/mcp" }
+  }
+}`}</Pre>
+            <DocsTable
+              head={["Tool", "What it does"]}
+              rows={[
+                ["list_projects", "Projects with chain id and your role"],
+                ["list_contracts", "The address book, as function/event signatures"],
+                ["add_contract", "Add an ABI — pass one, or auto-fetch verified source by address"],
+                ["list_notebooks / get_notebook", "Browse; read a notebook as a portable manifest"],
+                ["create_notebook", "Author a notebook from a manifest (missing ABIs created on the fly)"],
+                ["get_notebook_code", "Whole notebook as wagmi / viem / Python / Rust / Solidity source"],
+                ["get_notebook_format", "The manifest format spec, for the agent to read first"],
+              ]}
+            />
+            <p>
+              Both handoff directions become one prompt: a contract dev&apos;s
+              agent reads the Foundry repo and{" "}
+              <strong>turns a prompt into a runnable notebook</strong> (it
+              gets the URL back — you hit <em>Run all</em>); a frontend
+              dev&apos;s agent pulls the team&apos;s tested flow{" "}
+              <strong>as wagmi hooks</strong> instead of re-deriving calls
+              from an ABI.
+            </p>
+            <p>
+              The same manifest travels without an agent too:{" "}
+              <Code>GET /api/notebooks/:id/file</Code> exports it (as does
+              the editor&apos;s download button),{" "}
+              <Code>POST /api/projects/:id/notebooks/import</Code> imports
+              it — so notebooks can live in the contracts repo and go through
+              PR review. Manifests carry blocks plus the ABIs they reference,
+              never RPC URLs.
+            </p>
+            <p>
+              Agents create and read <em>definitions</em>; execution stays in
+              your browser and writes stay signed by your wallet. MCP works
+              on local-mode instances today — team mode needs API tokens
+              (SIWE can&apos;t be done headlessly), which are on the roadmap
+              along with execution tools riding the headless runner.
             </p>
           </Section>
 

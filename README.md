@@ -72,9 +72,10 @@ multi-step flows (approve → deposit → check balance) stay readable.
 
 Every block deterministically generates a wagmi-hooks or viem snippet; a
 notebook-level toggle shows the full runnable source, and the whole notebook
-exports as a JSON call manifest. The notebook becomes the integration spec you
-hand to the frontend — and it stops drifting because it's the same artifact you
-just ran.
+exports as a portable JSON manifest (the same `chainstitch-notebook` format
+the MCP tools and the import API speak). The notebook becomes the integration
+spec you hand to the frontend — and it stops drifting because it's the same
+artifact you just ran.
 
 <p align="center">
   <img src="screenshots/codegen-source.png" alt="A read block with its source toggle open, showing the generated wagmi useReadContract hook in five flavor tabs">
@@ -155,6 +156,42 @@ your browser to Google, and the key never touches the Chainstitch server.
   <img src="screenshots/ai-import-preview.png" alt="The conversion preview: 16 blocks with sender groups and condition checks, warnings, and the importable Vault contract">
   <br><sub>The preview before inserting: <code>vm.startPrank</code> became a sender group, asserts became <code>if</code> blocks, un-convertible setup surfaced as warnings — and the Vault ABI is added to the address book on insert.</sub>
 </p>
+
+### MCP server — your coding agent writes and reads notebooks
+
+Every Chainstitch instance is an [MCP](https://modelcontextprotocol.io)
+server at **`/api/mcp`** — point Cursor, Claude Code or any MCP-capable
+agent at it and the integration works in both directions:
+
+- **Contract side:** the agent already reads your Foundry/Hardhat repo. Now
+  it can turn "make me a notebook that deposits into the vault and checks
+  the balance" into a real notebook — fetching ABIs by address
+  (`add_contract`), or embedding them from your artifacts — and hand you
+  the URL to hit *Run all* on.
+- **Frontend side:** the agent pulls any notebook as generated source
+  (`get_notebook_code` — wagmi hooks, viem, Python, Rust) and adapts the
+  team's already-tested flow into your app, instead of re-deriving calls
+  from the ABI.
+
+```json
+{
+  "mcpServers": {
+    "chainstitch": { "url": "http://localhost:3000/api/mcp" }
+  }
+}
+```
+
+Under the hood the agent speaks the same portable **notebook file format**
+(`chainstitch-notebook` v1) that the export button and
+`GET /api/notebooks/:id/file` produce and
+`POST /api/projects/:id/notebooks/import` accepts — a deterministic JSON
+manifest carrying the blocks plus the ABIs they reference (never RPC URLs),
+so notebooks can also live in your contracts repo and travel through PRs.
+The format is self-documenting: agents call `get_notebook_format`, humans
+read the in-app docs (`/docs`, "AI agents & MCP"). Tools are
+read/write on definitions only — execution stays in your browser, writes
+stay signed by your wallet. MCP currently runs on local-mode instances
+(team-mode API tokens are on the roadmap).
 
 ### Version history & saved runs
 

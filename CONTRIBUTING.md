@@ -32,6 +32,8 @@ npm run dev
 | --- | --- |
 | `src/lib/engine.ts` | Block execution (reads, simulate-then-write, RPC, impersonation) |
 | `src/lib/codegen.ts` | wagmi/viem snippet generation |
+| `src/lib/notebook-file.ts` | Portable notebook manifest (`chainstitch-notebook` v1): build, validate, format doc |
+| `src/server/mcp.ts` | MCP server (`/api/mcp`) — agent tools as thin DAL wrappers |
 | `src/lib/variables.ts` | `{{variable}}` interpolation |
 | `src/components/notebook/` | The notebook editor UI (blocks, results, code panels) |
 | `src/stores/notebook-store.ts` | Editor state (Zustand), including read-only gating |
