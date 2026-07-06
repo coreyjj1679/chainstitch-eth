@@ -17,7 +17,7 @@
     <a href="#contributing">Contributing</a>
   </p>
   <br>
-  <img src="screenshots/demo.gif" alt="Chainstitch — running a notebook of Uniswap V3 + Chainlink reads against Ethereum mainnet" width="860">
+  <img src="screenshots/hero-notebook.png" alt="Chainstitch — notebook capscreen for a Uniswap V3 + Chainlink mainnet flow with decoded chained outputs" width="860">
 </div>
 
 Chainstitch is an open-source, local-first collaboration tool for working
@@ -36,10 +36,11 @@ agents can write and read notebooks too.
   address — sign-in is an Ethereum signature (SIWE), so there's no email server
   to configure and no passwords to manage.
 
-The GIF above is a real recording (no wallet, no writes): it derives the
-Uniswap V3 USDC/WETH 0.05% pool from the factory, reads its state, pulls the
-Chainlink ETH/USD price, and fires two raw RPC calls — all against Ethereum
-mainnet, chained with `{{usdc}}` / `{{weth}}` / `{{pool}}`.
+The capscreen above is from the seeded example notebook (no wallet, no
+writes): it derives the Uniswap V3 USDC/WETH 0.05% pool from the factory,
+reads its state, pulls the Chainlink ETH/USD price, and fires two raw RPC
+calls — all against Ethereum mainnet, chained with `{{usdc}}` / `{{weth}}` /
+`{{pool}}`.
 
 ## Features
 
@@ -75,7 +76,7 @@ Every block deterministically generates a wagmi-hooks or viem snippet; a
 notebook-level toggle shows the full runnable source, and the whole notebook
 exports as a portable JSON manifest (the same `chainstitch-notebook` format
 the MCP tools and the import API speak). The notebook becomes the integration
-spec you hand to the frontend — and it stops drifting because it's the same
+spec you hand to your app team — and it stops drifting because it's the same
 artifact you just ran.
 
 <p align="center">

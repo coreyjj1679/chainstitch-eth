@@ -289,7 +289,7 @@ export default function DocsPage() {
               addresses pulled from the address book. A notebook-level toggle
               shows the full runnable source, and the whole notebook exports as
               a JSON call manifest. The notebook is the integration spec you
-              hand to the frontend, and it can&apos;t drift because you just
+              hand to your app team, and it can&apos;t drift because you just
               ran it.
             </p>
             <p>
