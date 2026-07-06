@@ -66,6 +66,7 @@ import {
 } from "@/lib/block-label";
 import { parseBigIntSafe, stringifyBigIntSafe } from "@/lib/serialize";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
+import { buildNotebookFile, notebookFileName } from "@/lib/notebook-file";
 import { chainForProject } from "@/components/wallet/project-web3-provider";
 import { useNotebookStore } from "@/stores/notebook-store";
 import { useSignerStore } from "@/stores/signer";
@@ -1445,27 +1446,22 @@ export function NotebookEditor({
   }
 
   function exportNotebook() {
-    const manifest = {
-      title,
-      description,
-      chain: { id: project.chainId, rpcUrl: project.rpcUrl },
-      blocks: useNotebookStore.getState().blocks.map((b) => ({
-        id: b.id,
-        type: b.type,
-        config: b.config,
-        outputVariable: b.outputVariable,
-        // Group membership (sender/condition groups) — ids make it resolvable.
-        parentId: b.parentId ?? null,
-        runWhen: b.runWhen ?? null,
-      })),
-    };
+    // The canonical portable format (chainstitch-notebook v1): contracts by
+    // name with embedded ABIs, no RPC URL — the same manifest the import
+    // API and the MCP tools speak, so a download can travel anywhere.
+    const manifest = buildNotebookFile(
+      { title, description: description || null },
+      useNotebookStore.getState().blocks,
+      contracts,
+      project.chainId,
+    );
     const blob = new Blob([JSON.stringify(manifest, null, 2)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "notebook"}.json`;
+    a.download = notebookFileName(title);
     a.click();
     URL.revokeObjectURL(url);
   }

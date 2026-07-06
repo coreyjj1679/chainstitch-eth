@@ -51,6 +51,7 @@ async function main() {
     projects: await import("../src/server/dal/projects"),
     contracts: await import("../src/server/dal/contracts"),
     notebooks: await import("../src/server/dal/notebooks"),
+    notebookFiles: await import("../src/server/dal/notebook-files"),
     recipes: await import("../src/server/dal/recipes"),
     runs: await import("../src/server/dal/runs"),
     stateViews: await import("../src/server/dal/state-views"),
@@ -340,6 +341,97 @@ async function main() {
     !(await dal.runs.listRuns(editor, project.id)).some((r) => r.id === savedRun.id),
     "editor deletes a saved run",
   );
+
+  // --- Portable notebook files (export / import / codegen) --------------------
+  const manifest = {
+    format: "chainstitch-notebook",
+    version: 1,
+    title: "Imported",
+    description: null,
+    chain: { id: 31337 },
+    contracts: [
+      {
+        name: "Vault",
+        address: "0x2222222222222222222222222222222222222222",
+        abi: [
+          { type: "function", name: "total", inputs: [], outputs: [{ type: "uint256" }], stateMutability: "view" },
+        ],
+      },
+    ],
+    blocks: [
+      { type: "variable", config: { name: "amt", value: "1" } },
+      { id: "g1", type: "if", config: { condition: "{{amt}} > 0" } },
+      {
+        type: "read",
+        parentId: "g1",
+        config: { contract: "Vault", functionName: "total", args: [] },
+        outputVariable: "total",
+      },
+      // Fallback path: references an address-book contract not in the file.
+      { type: "read", config: { contract: "Token2", functionName: "n", args: [] } },
+    ],
+  };
+  await expectStatus(
+    dal.notebookFiles.importNotebookFile(viewer, project.id, manifest),
+    403,
+    "viewer cannot import a notebook file",
+  );
+  const imported = await dal.notebookFiles.importNotebookFile(editor, project.id, manifest);
+  ok(
+    imported.blockCount === 4 && imported.createdContracts.includes("Vault"),
+    "editor imports a notebook file (missing contract created)",
+  );
+  const roundTrip = await dal.notebookFiles.getNotebookFile(viewer, imported.notebook.id);
+  const rtIf = roundTrip.blocks.find((b) => b.type === "if");
+  const rtRead = roundTrip.blocks.find((b) => b.type === "read");
+  ok(
+    roundTrip.format === "chainstitch-notebook" &&
+      roundTrip.contracts.some((c) => c.name === "Vault") &&
+      rtRead?.config.contract === "Vault" &&
+      rtRead?.config.contractId === undefined &&
+      !!rtIf?.id &&
+      rtRead?.parentId === rtIf.id,
+    "viewer exports the file (contracts by name, group membership kept)",
+  );
+  const reimported = await dal.notebookFiles.importNotebookFile(
+    editor,
+    project.id,
+    roundTrip,
+  );
+  ok(
+    reimported.blockCount === 4 && reimported.createdContracts.length === 0,
+    "re-importing the export reuses address-book contracts by address",
+  );
+  await expectStatus(
+    dal.notebookFiles.importNotebookFile(editor, project.id, {
+      title: "bad",
+      blocks: [{ type: "banana", config: {} }],
+    }),
+    400,
+    "unknown block type is rejected",
+  );
+  await expectStatus(
+    dal.notebookFiles.importNotebookFile(editor, project.id, {
+      title: "bad",
+      blocks: [{ type: "read", config: { contract: "Ghost", functionName: "f", args: [] } }],
+    }),
+    400,
+    "unresolvable contract reference is rejected",
+  );
+  const wagmiCode = await dal.notebookFiles.getNotebookCode(
+    viewer,
+    imported.notebook.id,
+    "wagmi",
+  );
+  ok(
+    wagmiCode.code.includes("total") && wagmiCode.flavor === "wagmi",
+    "viewer reads generated notebook code",
+  );
+  await expectStatus(
+    dal.notebookFiles.getNotebookCode(viewer, imported.notebook.id, "cobol"),
+    400,
+    "unknown code flavor is rejected",
+  );
   ok(
     (await dal.recipes.updateRecipe(editor, recipe.id, { name: "Approve v2" })).name ===
       "Approve v2",
@@ -424,6 +516,24 @@ async function main() {
     dal.runs.listRuns(owner, "other-project"),
     404,
     "foreign project runs cannot be listed",
+  );
+  await expectStatus(
+    dal.notebookFiles.getNotebookFile(owner, "other-notebook"),
+    404,
+    "foreign notebook cannot be exported",
+  );
+  await expectStatus(
+    dal.notebookFiles.getNotebookCode(owner, "other-notebook", "viem"),
+    404,
+    "foreign notebook code cannot be generated",
+  );
+  await expectStatus(
+    dal.notebookFiles.importNotebookFile(owner, "other-project", {
+      title: "x",
+      blocks: [],
+    }),
+    404,
+    "cannot import into a foreign project",
   );
   await expectStatus(
     dal.recipes.listRecipes(owner, "other-project"),
