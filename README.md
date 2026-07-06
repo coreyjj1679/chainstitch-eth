@@ -168,7 +168,9 @@ agent at it and the integration works in both directions:
   "make me a notebook that deposits into the vault and checks the balance"
   becomes a real one — the agent fetches ABIs by address (`add_contract`)
   or embeds them from build artifacts, and hands back the URL to hit
-  *Run all* on.
+  *Run all* on. Follow-up prompts edit it in place
+  (`update_notebook_blocks`), with every change restorable from the
+  notebook's edit history.
 - **Notebook → code:** any notebook comes back out as generated source
   (`get_notebook_code` — wagmi hooks, viem, Python, Rust), so a flow the
   team already tested drops straight into an app instead of being

@@ -4,7 +4,12 @@ import { db, schema } from "@/db";
 import type { AuthContext } from "@/server/auth-context";
 import { badRequest } from "@/server/errors";
 import { requireProject, getProject } from "@/server/dal/projects";
-import { getNotebookWithBlocks, requireNotebook } from "@/server/dal/notebooks";
+import {
+  getNotebookWithBlocks,
+  requireNotebook,
+  saveBlocks,
+  updateNotebook,
+} from "@/server/dal/notebooks";
 import { createContract, listContracts } from "@/server/dal/contracts";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
 import {
@@ -91,25 +96,43 @@ export interface ImportResult {
   warnings: string[];
 }
 
+/** A file block resolved against a project: fresh id, address-book contractId. */
+interface ResolvedBlock {
+  id: string;
+  type: BlockType;
+  config: Record<string, unknown>;
+  outputVariable: string | null;
+  parentId: string | null;
+  runWhen: string | null;
+}
+
+interface ResolvedFile {
+  file: NotebookFile;
+  blocks: ResolvedBlock[];
+  createdContracts: string[];
+  warnings: string[];
+}
+
 /**
- * Import a portable notebook manifest into a project (editor+): validate,
- * map the file's contracts onto the address book (by address, then name,
- * creating what's missing), then create the notebook with fresh block ids.
+ * The shared half of import and in-place update: validate a manifest, map
+ * its contracts onto the project's address book (by address, then name,
+ * creating what's missing), resolve every block's contract reference, and
+ * mint fresh block ids (group membership remapped alongside).
  */
-export async function importNotebookFile(
+async function resolveNotebookFile(
   ctx: AuthContext,
   projectId: string,
+  projectChainId: number,
   input: unknown,
-): Promise<ImportResult> {
-  const project = await requireProject(ctx, projectId, "editor");
+): Promise<ResolvedFile> {
   const parsed = parseNotebookFile(input);
   if (!parsed.ok) throw badRequest(parsed.error);
   const file = parsed.file;
 
   const warnings: string[] = [];
-  if (file.chain.id && file.chain.id !== project.chainId) {
+  if (file.chain.id && file.chain.id !== projectChainId) {
     warnings.push(
-      `The file targets chain ${file.chain.id} but the project uses chain ${project.chainId} — fine for forks, wrong addresses otherwise.`,
+      `The file targets chain ${file.chain.id} but the project uses chain ${projectChainId} — fine for forks, wrong addresses otherwise.`,
     );
   }
 
@@ -184,7 +207,7 @@ export async function importNotebookFile(
     return id;
   });
 
-  const rows = file.blocks.map((block, index) => {
+  const blocks: ResolvedBlock[] = file.blocks.map((block, index) => {
     const config = { ...block.config };
     if (typeof config.contract === "string") {
       const key = config.contract.toLowerCase();
@@ -216,14 +239,33 @@ export async function importNotebookFile(
     }
     return {
       id: mintedIds[index],
-      order: index,
       type: block.type,
-      config: JSON.stringify(config),
+      config,
       outputVariable: block.outputVariable ?? null,
       parentId: block.parentId ? (newIdByFileId.get(block.parentId) ?? null) : null,
       runWhen: block.runWhen ?? null,
     };
   });
+
+  return { file, blocks, createdContracts, warnings };
+}
+
+/**
+ * Import a portable notebook manifest into a project (editor+) as a new
+ * notebook.
+ */
+export async function importNotebookFile(
+  ctx: AuthContext,
+  projectId: string,
+  input: unknown,
+): Promise<ImportResult> {
+  const project = await requireProject(ctx, projectId, "editor");
+  const { file, blocks, createdContracts, warnings } = await resolveNotebookFile(
+    ctx,
+    projectId,
+    project.chainId,
+    input,
+  );
 
   // --- Create the notebook + blocks atomically -------------------------------
   const now = new Date();
@@ -238,9 +280,20 @@ export async function importNotebookFile(
   // better-sqlite3 transactions are synchronous: use .run(), no awaits inside.
   db.transaction((tx) => {
     tx.insert(schema.notebooks).values(notebookRow).run();
-    if (rows.length > 0) {
+    if (blocks.length > 0) {
       tx.insert(schema.blocks)
-        .values(rows.map((row) => ({ ...row, notebookId: notebookRow.id })))
+        .values(
+          blocks.map((b, index) => ({
+            id: b.id,
+            notebookId: notebookRow.id,
+            order: index,
+            type: b.type,
+            config: JSON.stringify(b.config),
+            outputVariable: b.outputVariable,
+            parentId: b.parentId,
+            runWhen: b.runWhen,
+          })),
+        )
         .run();
     }
   });
@@ -256,7 +309,52 @@ export async function importNotebookFile(
       createdAt: notebook.createdAt.getTime(),
       updatedAt: notebook.updatedAt.getTime(),
     },
-    blockCount: rows.length,
+    blockCount: blocks.length,
+    createdContracts,
+    warnings,
+  };
+}
+
+/**
+ * Replace an existing notebook's content from a manifest (editor+) — the
+ * in-place counterpart to `importNotebookFile`, for agents iterating on a
+ * notebook. Goes through the versioned `saveBlocks` path, so the previous
+ * content stays restorable in the notebook's edit history; title/description
+ * are updated when the manifest's differ.
+ */
+export async function updateNotebookBlocks(
+  ctx: AuthContext,
+  notebookId: string,
+  input: unknown,
+): Promise<ImportResult> {
+  const before = await requireNotebook(ctx, notebookId, "editor");
+  const project = await requireProject(ctx, before.projectId, "editor");
+  const { file, blocks, createdContracts, warnings } = await resolveNotebookFile(
+    ctx,
+    before.projectId,
+    project.chainId,
+    input,
+  );
+
+  if (file.title !== before.title || file.description !== (before.description ?? null)) {
+    await updateNotebook(ctx, notebookId, {
+      title: file.title,
+      description: file.description,
+    });
+  }
+  await saveBlocks(ctx, notebookId, blocks);
+
+  const notebook = await requireNotebook(ctx, notebookId);
+  return {
+    notebook: {
+      id: notebook.id,
+      projectId: notebook.projectId,
+      title: notebook.title,
+      description: notebook.description,
+      createdAt: notebook.createdAt.getTime(),
+      updatedAt: notebook.updatedAt.getTime(),
+    },
+    blockCount: blocks.length,
     createdContracts,
     warnings,
   };

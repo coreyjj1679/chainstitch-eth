@@ -326,6 +326,7 @@ export default function DocsPage() {
                 ["add_contract", "Add an ABI — pass one, or auto-fetch verified source by address"],
                 ["list_notebooks / get_notebook", "Browse; read a notebook as a portable manifest"],
                 ["create_notebook", "Author a notebook from a manifest (missing ABIs created on the fly)"],
+                ["update_notebook_blocks", "Replace a notebook's content in place — the old version stays restorable in edit history"],
                 ["get_notebook_code", "Whole notebook as wagmi / viem / Python / Rust / Solidity source"],
                 ["get_notebook_format", "The manifest format spec, for the agent to read first"],
               ]}

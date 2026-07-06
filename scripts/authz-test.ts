@@ -432,6 +432,49 @@ async function main() {
     400,
     "unknown code flavor is rejected",
   );
+
+  // --- In-place update from a manifest ----------------------------------------
+  const updatedManifest = {
+    ...roundTrip,
+    title: "Imported v2",
+    blocks: [
+      ...roundTrip.blocks,
+      { type: "markdown", config: { text: "appended by update" } },
+    ],
+  };
+  await expectStatus(
+    dal.notebookFiles.updateNotebookBlocks(viewer, imported.notebook.id, updatedManifest),
+    403,
+    "viewer cannot update notebook from a file",
+  );
+  const updatedNb = await dal.notebookFiles.updateNotebookBlocks(
+    editor,
+    imported.notebook.id,
+    updatedManifest,
+  );
+  ok(
+    updatedNb.blockCount === 5 &&
+      updatedNb.notebook.title === "Imported v2" &&
+      updatedNb.createdContracts.length === 0,
+    "editor updates a notebook in place (blocks + title, contracts reused)",
+  );
+  ok(
+    (await dal.notebooks.getNotebookWithBlocks(viewer, imported.notebook.id)).blocks
+      .length === 5,
+    "the update replaced the stored blocks",
+  );
+  ok(
+    (await dal.notebooks.listVersions(viewer, imported.notebook.id)).length >= 2,
+    "the update recorded a restorable version of the previous content",
+  );
+  await expectStatus(
+    dal.notebookFiles.updateNotebookBlocks(editor, imported.notebook.id, {
+      title: "bad",
+      blocks: [{ type: "banana", config: {} }],
+    }),
+    400,
+    "invalid manifest is rejected on update",
+  );
   ok(
     (await dal.recipes.updateRecipe(editor, recipe.id, { name: "Approve v2" })).name ===
       "Approve v2",
@@ -534,6 +577,14 @@ async function main() {
     }),
     404,
     "cannot import into a foreign project",
+  );
+  await expectStatus(
+    dal.notebookFiles.updateNotebookBlocks(owner, "other-notebook", {
+      title: "x",
+      blocks: [],
+    }),
+    404,
+    "foreign notebook cannot be updated from a file",
   );
   await expectStatus(
     dal.recipes.listRecipes(owner, "other-project"),

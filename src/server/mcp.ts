@@ -10,6 +10,7 @@ import {
   getNotebookCode,
   getNotebookFile,
   importNotebookFile,
+  updateNotebookBlocks,
 } from "@/server/dal/notebook-files";
 import { lookupAbiForProject } from "@/server/abi-lookup";
 import {
@@ -46,8 +47,9 @@ const INSTRUCTIONS = `Chainstitch is a notebook tool for smart contracts: blocks
 
 Typical flows:
 - Author a notebook from a codebase: list_projects → list_contracts (see what the address book has) → get_notebook_format → create_notebook (embed ABIs for anything missing, e.g. from Foundry/Hardhat artifacts).
+- Iterate on an existing notebook: get_notebook → edit the manifest → update_notebook_blocks (the previous content stays restorable in the notebook's edit history).
 - Hand a flow to a frontend: list_notebooks → get_notebook_code with flavor "wagmi" (or "viem") and adapt the returned source.
-- get_notebook returns the same portable manifest create_notebook accepts — read one notebook as a template for writing another.
+- get_notebook returns the same portable manifest create_notebook and update_notebook_blocks accept — read one notebook as a template for writing another.
 
 Notes: notebooks are definitions; execution happens in the user's browser (writes are signed by their wallet), so create/import here and let the user hit Run. Numbers in block args are strings in base units (wei). Addresses/ABIs come from the project address book — add_contract can fetch verified ABIs by address.`;
 
@@ -86,6 +88,17 @@ function str(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value === "string" && value.trim() !== "") return value.trim();
   throw new ApiError(400, `"${key}" (string) is required`);
+}
+
+/** Tolerate a double-encoded manifest (agents sometimes stringify it). */
+function manifestArg(args: Record<string, unknown>, key: string): unknown {
+  const value = args[key];
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new ApiError(400, `"${key}" is a string but not valid JSON`);
+  }
 }
 
 function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
@@ -279,21 +292,43 @@ const TOOLS: ToolDef[] = [
     },
     handler: async (ctx, args) => {
       const projectId = str(args, "project_id");
-      // Tolerate a double-encoded manifest (agents sometimes stringify it).
-      let manifest = args.notebook;
-      if (typeof manifest === "string") {
-        try {
-          manifest = JSON.parse(manifest);
-        } catch {
-          throw new ApiError(400, `"notebook" is a string but not valid JSON`);
-        }
-      }
-      const result = await importNotebookFile(ctx, projectId, manifest);
+      const result = await importNotebookFile(ctx, projectId, manifestArg(args, "notebook"));
       return {
         json: {
           notebookId: result.notebook.id,
           title: result.notebook.title,
           url: notebookUrl(projectId, result.notebook.id),
+          blockCount: result.blockCount,
+          createdContracts: result.createdContracts,
+          warnings: result.warnings,
+        },
+      };
+    },
+  },
+  {
+    name: "update_notebook_blocks",
+    description:
+      "Replace an existing notebook's content in place from a manifest (the shape get_notebook returns): read it, edit the blocks, send it back. The previous content stays restorable in the notebook's edit history. Contracts resolve like create_notebook; title/description update when they differ. Requires editor access.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        notebook_id: { type: "string" },
+        notebook: {
+          type: "object",
+          description: "A chainstitch-notebook v1 manifest (see get_notebook_format)",
+        },
+      },
+      required: ["notebook_id", "notebook"],
+      additionalProperties: false,
+    },
+    handler: async (ctx, args) => {
+      const notebookId = str(args, "notebook_id");
+      const result = await updateNotebookBlocks(ctx, notebookId, manifestArg(args, "notebook"));
+      return {
+        json: {
+          notebookId: result.notebook.id,
+          title: result.notebook.title,
+          url: notebookUrl(result.notebook.projectId, result.notebook.id),
           blockCount: result.blockCount,
           createdContracts: result.createdContracts,
           warnings: result.warnings,
