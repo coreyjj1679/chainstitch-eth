@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArrowUpRight,
   BookMarked,
+  Bot,
   Code2,
   FlaskConical,
   Laptop,
@@ -39,7 +40,7 @@ export function LandingPage({
       icon: FlaskConical,
       tint: "bg-sky-400/10 text-sky-400",
       title: "Simulate as anyone",
-      body: "Dry-run entire notebooks as any address via eth_call — revert reasons surface before anything is sent. On anvil forks, impersonate whales with no keys at all.",
+      body: "Dry-run entire notebooks as any address via eth_call — revert reasons and decoded call traces surface before anything is sent. On anvil forks, impersonate whales with no keys at all.",
     },
     {
       icon: Code2,
@@ -107,10 +108,13 @@ export function LandingPage({
         {/* Hero */}
         <section className="mx-auto w-full max-w-6xl px-6 pt-16 pb-12">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-5 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <div className="mb-5 flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
               <span className="rounded-full border px-2.5 py-0.5">Open source · MIT</span>
               <span className="rounded-full border px-2.5 py-0.5">
                 Local-first — keys never leave your browser
+              </span>
+              <span className="rounded-full border border-primary/40 px-2.5 py-0.5 text-primary">
+                MCP server built in
               </span>
             </div>
             <h1 className="mb-4 text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -126,7 +130,8 @@ export function LandingPage({
               </code>
               , simulated before anything is sent, and shared with your team as
               a single source of truth. Every block generates the exact
-              wagmi/viem code your frontend will ship.
+              wagmi/viem code your frontend will ship — and every instance is
+              an MCP server your coding agent can drive.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-3">
               {demoUrl && (
@@ -277,11 +282,11 @@ export function LandingPage({
                 integration doc
               </h2>
               <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
-                Solidity devs prove the flow works by running it. Frontend devs
-                flip the code toggle and copy the exact wagmi hooks or viem
-                calls — ABIs and addresses included from the project&apos;s
-                address book. The handoff document stops drifting because it is
-                the same artifact you just executed.
+                Prove the flow works by running it, then flip the code toggle
+                and copy the exact wagmi hooks or viem calls — ABIs and
+                addresses included from the project&apos;s address book. The
+                handoff document stops drifting because it is the same
+                artifact you just executed.
               </p>
               <ul className="grid gap-2 text-sm text-muted-foreground">
                 {[
@@ -305,6 +310,63 @@ export function LandingPage({
           </div>
         </section>
 
+        {/* MCP */}
+        <section className="border-t bg-card/20">
+          <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-6 py-14 lg:grid-cols-2">
+            <div className="order-last lg:order-first">
+              <pre className="overflow-x-auto rounded-xl border bg-background px-5 py-4 font-mono text-xs leading-relaxed text-foreground/90">
+                {`// .cursor/mcp.json — that's the whole setup
+{
+  "mcpServers": {
+    "chainstitch": { "url": "http://localhost:3000/api/mcp" }
+  }
+}
+
+> "Make a notebook that checks the vault's allowance
+>  and deposits 100 USDC if it's approved."
+
+⏺ create_notebook … ✓ 6 blocks
+  http://localhost:3000/p/…/n/…   ← open, hit Run all`}
+              </pre>
+              <p className="mt-3 text-center text-xs text-muted-foreground/70">
+                Tools include <code className="rounded bg-muted px-1 font-mono">create_notebook</code>,{" "}
+                <code className="rounded bg-muted px-1 font-mono">get_notebook_code</code>,{" "}
+                <code className="rounded bg-muted px-1 font-mono">add_contract</code> — verified
+                ABIs fetched by address.
+              </p>
+            </div>
+            <div>
+              <div className="mb-3 flex size-8 items-center justify-center rounded-lg border bg-primary/10 text-primary">
+                <Bot className="size-4" />
+              </div>
+              <h2 className="mb-3 text-2xl font-semibold tracking-tight">
+                Your coding agent <span className="text-primary">speaks Chainstitch</span>
+              </h2>
+              <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+                Every instance is an <strong className="text-foreground">MCP server</strong> —
+                connect Cursor, Claude Code or any MCP-capable agent to{" "}
+                <code className="rounded bg-muted px-1 font-mono text-[0.85em]">/api/mcp</code>{" "}
+                and prompts become notebooks: the agent reads the repo it
+                already sits in, assembles the blocks, adds missing ABIs, and
+                hands back a URL to run. Ask for the reverse and any tested
+                notebook comes out as wagmi, viem, Python or Rust source.
+              </p>
+              <ul className="grid gap-2 text-sm text-muted-foreground">
+                {[
+                  "No extra process, no API key — it's the app you already run",
+                  "Agents write definitions; execution stays in your browser, writes stay signed by your wallet",
+                  "Notebooks travel as files too: versioned JSON import/export for PR review",
+                ].map((line) => (
+                  <li key={line} className="flex items-start gap-2">
+                    <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
         {/* Roadmap */}
         <section className="border-t bg-card/20">
           <div className="mx-auto w-full max-w-6xl px-6 py-14">
@@ -322,24 +384,24 @@ export function LandingPage({
                   body: "Snapshot / revert / time-travel buttons on anvil forks, and app-managed fork processes.",
                 },
                 {
-                  title: "Decoded revert traces",
-                  body: "Failed simulations render the decoded call tree with your address-book names.",
-                },
-                {
-                  title: "Decoded events & event blocks",
-                  body: "Receipt logs decoded against your ABIs; query past events as a block, output as a variable.",
-                },
-                {
-                  title: "Notebooks as files + CI runner",
-                  body: "Deterministic JSON export that lives in your repo, plus a headless CLI that fails the build when a flow breaks.",
+                  title: "Headless CI runner",
+                  body: "chainstitch run notebook.json — executes a notebook file against a fresh fork and fails the build when a flow breaks.",
                 },
                 {
                   title: "Deploy & assertion blocks",
                   body: "Deploy from Foundry artifacts as a cell; expect blocks turn notebooks into integration tests.",
                 },
                 {
-                  title: "Playbooks & Safe export",
-                  body: "Export a flow as a JSON call manifest or a Safe Transaction Builder batch — an executable multisig runbook.",
+                  title: "MCP for team instances",
+                  body: "API tokens so agents can drive shared team instances too — and execution tools once the headless runner lands.",
+                },
+                {
+                  title: "Safe Transaction Builder export",
+                  body: "Export any flow as a Safe batch — an executable multisig runbook for ops.",
+                },
+                {
+                  title: "Unit-aware inputs",
+                  body: "Token-decimal amount fields (1.5 USDC → 1500000), formatted outputs, and ENS + address-book autocomplete.",
                 },
               ].map((item) => (
                 <div key={item.title} className="rounded-xl border border-dashed bg-card/30 p-4">

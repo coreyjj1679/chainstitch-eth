@@ -331,13 +331,12 @@ export default function DocsPage() {
               ]}
             />
             <p>
-              Both handoff directions become one prompt: a contract dev&apos;s
-              agent reads the Foundry repo and{" "}
-              <strong>turns a prompt into a runnable notebook</strong> (it
-              gets the URL back — you hit <em>Run all</em>); a frontend
-              dev&apos;s agent pulls the team&apos;s tested flow{" "}
-              <strong>as wagmi hooks</strong> instead of re-deriving calls
-              from an ABI.
+              The handoff becomes a prompt, in both directions: an agent
+              turns &quot;set up the deposit flow&quot; into{" "}
+              <strong>a runnable notebook</strong> (it hands back the URL —
+              you hit <em>Run all</em>), and pulls any tested notebook back
+              out <strong>as wagmi hooks</strong> instead of re-deriving
+              calls from an ABI.
             </p>
             <p>
               The same manifest travels without an agent too:{" "}

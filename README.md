@@ -25,7 +25,8 @@ with deployed smart contracts. Compose reads, writes, and raw RPC calls into a
 notebook, chain them together with `{{variables}}`, and run them cell by cell —
 then share the notebook with your team as a single source of truth. Every block
 also generates its wagmi/viem source, so a notebook doubles as living, runnable
-integration docs.
+integration docs — and every instance doubles as an **MCP server**, so coding
+agents can write and read notebooks too.
 
 - **Own everything.** One SQLite file on your machine. No accounts, no
   telemetry, no license server, nothing phones home.
@@ -163,15 +164,15 @@ Every Chainstitch instance is an [MCP](https://modelcontextprotocol.io)
 server at **`/api/mcp`** — point Cursor, Claude Code or any MCP-capable
 agent at it and the integration works in both directions:
 
-- **Contract side:** the agent already reads your Foundry/Hardhat repo. Now
-  it can turn "make me a notebook that deposits into the vault and checks
-  the balance" into a real notebook — fetching ABIs by address
-  (`add_contract`), or embedding them from your artifacts — and hand you
-  the URL to hit *Run all* on.
-- **Frontend side:** the agent pulls any notebook as generated source
-  (`get_notebook_code` — wagmi hooks, viem, Python, Rust) and adapts the
-  team's already-tested flow into your app, instead of re-deriving calls
-  from the ABI.
+- **Prompt → notebook:** your agent already reads the repo it sits in. Now
+  "make me a notebook that deposits into the vault and checks the balance"
+  becomes a real one — the agent fetches ABIs by address (`add_contract`)
+  or embeds them from build artifacts, and hands back the URL to hit
+  *Run all* on.
+- **Notebook → code:** any notebook comes back out as generated source
+  (`get_notebook_code` — wagmi hooks, viem, Python, Rust), so a flow the
+  team already tested drops straight into an app instead of being
+  re-derived from an ABI.
 
 ```json
 {
