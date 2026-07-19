@@ -40,6 +40,7 @@ import {
   Info,
   KeyRound,
   ListRestart,
+  ListTree,
   Pencil,
   Play,
   Plus,
@@ -82,6 +83,7 @@ import { SenderBlock } from "@/components/notebook/sender-block";
 import { VariableBlock } from "@/components/notebook/variable-block";
 import { IfBlock } from "@/components/notebook/if-block";
 import { ExpectBlock } from "@/components/notebook/expect-block";
+import { HandoffPanel } from "@/components/notebook/handoff-panel";
 import { RecipeBlock } from "@/components/notebook/recipe-block";
 import { CodePanel } from "@/components/notebook/code-panel";
 import { ImportTestDialog } from "@/components/notebook/import-test-dialog";
@@ -352,6 +354,7 @@ export function NotebookEditor({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showNotebookCode, setShowNotebookCode] = useState(false);
+  const [showHandoff, setShowHandoff] = useState(false);
   const [running, setRunning] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -1683,6 +1686,16 @@ export function NotebookEditor({
         <Button
           variant="ghost"
           size="icon-sm"
+          onClick={() => setShowHandoff((v) => !v)}
+          className={cn(showHandoff && "bg-muted text-foreground")}
+          aria-label="Toggle integration handoff"
+          title="Integration handoff: call sequence, events, variables"
+        >
+          <ListTree />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={() => setShowNotebookCode((v) => !v)}
           className={cn(showNotebookCode && "bg-muted text-foreground")}
           aria-label="Toggle notebook source"
@@ -1892,6 +1905,20 @@ export function NotebookEditor({
       )}
 
       <SignerDialog open={signerOpen} onOpenChange={setSignerOpen} project={project} />
+
+      {showHandoff && (
+        <HandoffPanel
+          title={title}
+          description={description}
+          blocks={blocks}
+          contracts={contracts}
+          project={project}
+          onOpenCode={() => {
+            setShowHandoff(false);
+            setShowNotebookCode(true);
+          }}
+        />
+      )}
 
       {showNotebookCode && (
         <div className="mb-6 rounded-xl border p-4">

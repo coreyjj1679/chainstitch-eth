@@ -37,6 +37,9 @@ jobs:
       - name: Unit-aware helpers
         run: npm run test:units
 
+      - name: Handoff brief unit tests
+        run: npm run test:handoff
+
       - name: Authorization test suite (roles & workspace isolation)
         run: npm run test:authz
 

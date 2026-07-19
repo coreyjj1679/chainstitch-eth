@@ -9,6 +9,7 @@
     "lint": "eslint",
     "chainstitch": "tsx src/cli/main.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "test:handoff": "tsx --test scripts/test-handoff.ts",
     "test:units": "tsx --test scripts/test-units.ts",
     "test:expect": "tsx --test scripts/test-expect.ts",
     "test:run-notebook": "tsx --test scripts/test-run-notebook.ts",

@@ -432,6 +432,21 @@ async function main() {
     400,
     "unknown code flavor is rejected",
   );
+  const handoff = await dal.notebookFiles.getNotebookHandoff(
+    viewer,
+    imported.notebook.id,
+  );
+  ok(
+    handoff.notebookId === imported.notebook.id &&
+      Array.isArray(handoff.steps) &&
+      handoff.steps.length > 0,
+    "viewer reads notebook handoff brief",
+  );
+  await expectStatus(
+    dal.notebookFiles.getNotebookHandoff(nonMember, imported.notebook.id),
+    403,
+    "non-member cannot read notebook handoff",
+  );
 
   // --- In-place update from a manifest ----------------------------------------
   const updatedManifest = {
@@ -569,6 +584,11 @@ async function main() {
     dal.notebookFiles.getNotebookCode(owner, "other-notebook", "viem"),
     404,
     "foreign notebook code cannot be generated",
+  );
+  await expectStatus(
+    dal.notebookFiles.getNotebookHandoff(owner, "other-notebook"),
+    404,
+    "foreign notebook handoff cannot be read",
   );
   await expectStatus(
     dal.notebookFiles.importNotebookFile(owner, "other-project", {

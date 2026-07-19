@@ -13,6 +13,10 @@ import {
 import { createContract, listContracts } from "@/server/dal/contracts";
 import { generateNotebookCode, type CodeFlavor } from "@/lib/codegen";
 import {
+  buildNotebookHandoffBrief,
+  type NotebookHandoffBrief,
+} from "@/lib/notebook-handoff";
+import {
   buildNotebookFile,
   parseNotebookFile,
   type NotebookFile,
@@ -77,6 +81,31 @@ export async function getNotebookCode(
     title: notebook.title,
     flavor: flavor as CodeFlavor,
     code: generateNotebookCode(blocks, contracts, project, flavor as CodeFlavor),
+  };
+}
+
+/** Static integration handoff brief for a notebook (viewer+). */
+export async function getNotebookHandoff(
+  ctx: AuthContext,
+  notebookId: string,
+): Promise<NotebookHandoffBrief & { notebookId: string; projectId: string }> {
+  const notebook = await getNotebookWithBlocks(ctx, notebookId);
+  const project = await requireProject(ctx, notebook.projectId);
+  const contracts = (await listContracts(ctx, notebook.projectId)) as ContractEntry[];
+  const blocks = notebook.blocks.map((b) => ({
+    ...b,
+    type: b.type as BlockType,
+    config: b.config as BlockConfig,
+  })) as NotebookBlock[];
+  const brief = buildNotebookHandoffBrief(blocks, contracts, {
+    title: notebook.title,
+    description: notebook.description,
+    chainId: project.chainId,
+  });
+  return {
+    ...brief,
+    notebookId,
+    projectId: notebook.projectId,
   };
 }
 

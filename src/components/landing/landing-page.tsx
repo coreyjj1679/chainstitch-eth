@@ -393,24 +393,20 @@ export function LandingPage({
             <div className="mx-auto grid max-w-4xl gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
                 {
-                  title: "Fork sandbox controls",
-                  body: "Snapshot / revert / time-travel buttons on anvil forks, and app-managed fork processes.",
-                },
-                {
-                  title: "Deploy blocks",
-                  body: "Deploy from Foundry artifacts as a cell; the new address becomes a variable and an address-book entry.",
+                  title: "MCP flow-authoring pack",
+                  body: "Templates and stronger agent instructions so deposit/withdraw/… notebooks consistently include expect-event and handoff-friendly variables.",
                 },
                 {
                   title: "MCP execution tools",
-                  body: "Agents can run a notebook and get receipts back over MCP, not just author definitions.",
-                },
-                {
-                  title: "Safe Transaction Builder export",
-                  body: "Export any flow as a Safe batch — an executable multisig runbook for ops.",
+                  body: "Agents can simulate or fork-run a notebook and get receipts back over MCP before sharing with the team.",
                 },
                 {
                   title: "Deploy blocks",
                   body: "Deploy from a Foundry/Hardhat artifact; the new address becomes a variable and an address-book entry.",
+                },
+                {
+                  title: "Safe Transaction Builder export",
+                  body: "Export any flow as a Safe batch — an executable multisig runbook for ops.",
                 },
               ].map((item) => (
                 <div key={item.title} className="rounded-xl border border-dashed bg-card/30 p-4">

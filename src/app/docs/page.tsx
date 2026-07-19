@@ -263,6 +263,13 @@ export default function DocsPage() {
               the value looks like a token amount.
             </p>
             <p>
+              The toolbar&apos;s handoff panel (tree icon) summarizes the
+              notebook for teammates: call sequence for frontend, expected
+              events for backend/indexer, and <Code>{"{{variable}}"}</Code>{" "}
+              wiring — the same brief agents get via{" "}
+              <Code>get_notebook_handoff</Code>.
+            </p>
+            <p>
               Keyboard shortcuts follow Jupyter: <Code>B</Code> adds a block,{" "}
               <Code>M</Code> a markdown cell, <Code>Shift+Enter</Code> runs and
               advances, <Code>Cmd+Enter</Code> runs in place. Notebooks and
@@ -362,6 +369,7 @@ export default function DocsPage() {
                 ["create_notebook", "Author a notebook from a manifest (missing ABIs created on the fly)"],
                 ["update_notebook_blocks", "Replace a notebook's content in place — the old version stays restorable in edit history"],
                 ["get_notebook_code", "Whole notebook as wagmi / viem / Python / Rust / Solidity source"],
+                ["get_notebook_handoff", "Integration brief: call sequence, expected events, {{variable}} wiring"],
                 ["get_notebook_format", "The manifest format spec, for the agent to read first"],
               ]}
             />
@@ -369,9 +377,13 @@ export default function DocsPage() {
               The handoff becomes a prompt, in both directions: an agent
               turns &quot;set up the deposit flow&quot; into{" "}
               <strong>a runnable notebook</strong> (it hands back the URL —
-              you hit <em>Run all</em>), and pulls any tested notebook back
-              out <strong>as wagmi hooks</strong> instead of re-deriving
-              calls from an ABI.
+              you hit <em>Run all</em>), surfaces{" "}
+              <Code>get_notebook_handoff</Code> so frontend sees the call
+              sequence and backend sees expected event logs, and pulls any
+              tested notebook back out <strong>as wagmi hooks</strong> instead
+              of re-deriving calls from an ABI. In the editor, the handoff
+              panel (toolbar tree icon) shows the same brief with Frontend /
+              Backend tabs.
             </p>
             <p>
               The same manifest travels without an agent too:{" "}

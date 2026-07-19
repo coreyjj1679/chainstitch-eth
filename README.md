@@ -172,10 +172,12 @@ agent at it and the integration works in both directions:
   *Run all* on. Follow-up prompts edit it in place
   (`update_notebook_blocks`), with every change restorable from the
   notebook's edit history.
-- **Notebook → code:** any notebook comes back out as generated source
-  (`get_notebook_code` — wagmi hooks, viem, Python, Rust), so a flow the
-  team already tested drops straight into an app instead of being
-  re-derived from an ABI.
+- **Notebook → code / handoff:** any notebook comes back as generated source
+  (`get_notebook_code` — wagmi hooks, viem, Python, Rust) **or** as an
+  integration brief (`get_notebook_handoff` — call sequence, expected
+  events, `{{variable}}` wiring) so frontend and backend teammates know
+  what to wire without opening every cell. The editor's handoff panel
+  (toolbar tree icon) shows the same brief.
 
 **Local mode** (no auth — the instance is yours):
 

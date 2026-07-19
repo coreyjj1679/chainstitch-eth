@@ -9,6 +9,7 @@ import {
   CODE_FLAVORS,
   getNotebookCode,
   getNotebookFile,
+  getNotebookHandoff,
   importNotebookFile,
   updateNotebookBlocks,
 } from "@/server/dal/notebook-files";
@@ -48,10 +49,10 @@ const INSTRUCTIONS = `Chainstitch is a notebook tool for smart contracts: blocks
 Typical flows:
 - Author a notebook from a codebase: list_projects → list_contracts (see what the address book has) → get_notebook_format → create_notebook (embed ABIs for anything missing, e.g. from Foundry/Hardhat artifacts).
 - Iterate on an existing notebook: get_notebook → edit the manifest → update_notebook_blocks (the previous content stays restorable in the notebook's edit history).
-- Hand a flow to a frontend: list_notebooks → get_notebook_code with flavor "wagmi" (or "viem") and adapt the returned source.
+- Hand a flow to the team: get_notebook_handoff for the integration brief (call sequence for frontend, expected events for backend/indexer, {{variable}} wiring), then get_notebook_code with flavor "wagmi" (or "viem") for copy-paste source.
 - get_notebook returns the same portable manifest create_notebook and update_notebook_blocks accept — read one notebook as a template for writing another.
 
-Notes: notebooks are definitions; execution happens in the user's browser (writes are signed by their wallet), so create/import here and let the user hit Run. Numbers in block args are strings in base units (wei). Addresses/ABIs come from the project address book — add_contract can fetch verified ABIs by address.`;
+Notes: notebooks are definitions; execution happens in the user's browser (writes are signed by their wallet), so create/import here and let the user hit Run. Prefer expect-event cells so get_notebook_handoff surfaces the logs backends must index. Numbers in block args are strings in base units (wei). Addresses/ABIs come from the project address book — add_contract can fetch verified ABIs by address.`;
 
 // --- JSON-RPC plumbing --------------------------------------------------------
 
@@ -352,6 +353,28 @@ const TOOLS: ToolDef[] = [
       const flavor = typeof args.flavor === "string" ? args.flavor : "wagmi";
       const result = await getNotebookCode(ctx, str(args, "notebook_id"), flavor);
       return { text: `// ${result.title} — ${result.flavor}\n\n${result.code}` };
+    },
+  },
+  {
+    name: "get_notebook_handoff",
+    description:
+      "Integration handoff brief for a notebook: ordered call surface (Contract.fn + arg types/values), expected events with ABI signatures (from Expect-event and Events blocks), and {{variable}} producer/consumer wiring. Use this so frontend and backend teammates know what to integrate without opening every cell. Prefer pairing with get_notebook_code for wagmi/viem source.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        notebook_id: { type: "string" },
+      },
+      required: ["notebook_id"],
+      additionalProperties: false,
+    },
+    handler: async (ctx, args) => {
+      const brief = await getNotebookHandoff(ctx, str(args, "notebook_id"));
+      return {
+        json: {
+          ...brief,
+          url: notebookUrl(brief.projectId, brief.notebookId),
+        },
+      };
     },
   },
 ];
