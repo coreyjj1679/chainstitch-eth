@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import type { PublicClient } from "viem";
 import { eventSignature, getEvents } from "@/lib/abi";
 import type { ContractEntry, EventConfig } from "@/lib/types";
+import { useTokenDecimals } from "@/hooks/use-token-decimals";
+import { AbiArgInput } from "@/components/notebook/abi-arg-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -21,13 +24,16 @@ import {
 export function EventBlock({
   config,
   contracts,
+  publicClient,
   onChange,
 }: {
   config: EventConfig;
   contracts: ContractEntry[];
+  publicClient?: PublicClient;
   onChange: (config: Partial<EventConfig>) => void;
 }) {
   const contract = contracts.find((c) => c.id === config.contractId);
+  const { data: decimals } = useTokenDecimals(publicClient, contract);
   const events = useMemo(() => (contract ? getEvents(contract.abi) : []), [contract]);
   const selected = events.find((e) => e.name === config.eventName);
 
@@ -106,14 +112,18 @@ export function EventBlock({
                   {input.name || `topic${i}`}
                   <span className="text-muted-foreground/60"> {input.type}</span>
                 </Label>
-                <Input
-                  className="h-8 font-mono text-xs"
-                  placeholder="any — or a value / {{variable}} to filter"
+                <AbiArgInput
+                  name={input.name}
+                  type={input.type}
                   value={config.filters?.[i] ?? ""}
-                  onChange={(e) => {
+                  contracts={contracts}
+                  decimals={decimals}
+                  unitLabel={contract?.name}
+                  publicClient={publicClient}
+                  onChange={(next) => {
                     const filters = [...(config.filters ?? [])];
                     while (filters.length <= i) filters.push("");
-                    filters[i] = e.target.value;
+                    filters[i] = next;
                     onChange({ filters });
                   }}
                 />

@@ -311,7 +311,13 @@ export function BlockShell({
           </p>
         )}
         {isExecutable && result && (
-          <ResultPanel blockId={block.id} result={result} project={project} />
+          <ResultPanel
+            blockId={block.id}
+            block={block}
+            result={result}
+            project={project}
+            contracts={contracts}
+          />
         )}
         {isRunnable && showCode && (
           <CodePanel

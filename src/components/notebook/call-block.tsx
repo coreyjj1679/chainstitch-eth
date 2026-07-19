@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import type { PublicClient } from "viem";
 import {
   functionSignature,
   getFunctions,
@@ -9,7 +10,11 @@ import {
   returnsSignature,
 } from "@/lib/abi";
 import type { CallConfig, ContractEntry } from "@/lib/types";
-import { Input } from "@/components/ui/input";
+import { useTokenDecimals } from "@/hooks/use-token-decimals";
+import {
+  AbiArgInput,
+  PayableValueInput,
+} from "@/components/notebook/abi-arg-input";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -23,14 +28,17 @@ export function CallBlock({
   type,
   config,
   contracts,
+  publicClient,
   onChange,
 }: {
   type: "read" | "write";
   config: CallConfig;
   contracts: ContractEntry[];
+  publicClient?: PublicClient;
   onChange: (config: Partial<CallConfig>) => void;
 }) {
   const contract = contracts.find((c) => c.id === config.contractId);
+  const { data: decimals } = useTokenDecimals(publicClient, contract);
   const functions = useMemo(() => {
     if (!contract) return [];
     return type === "read"
@@ -111,19 +119,17 @@ export function CallBlock({
                 {input.name || `arg${i}`}
                 <span className="text-muted-foreground/60"> {input.type}</span>
               </Label>
-              <Input
-                className="h-8 font-mono text-xs"
-                placeholder={
-                  input.type.endsWith("]") || input.type.startsWith("tuple")
-                    ? 'JSON, e.g. ["0x…", "123n"]'
-                    : input.type.startsWith("uint") || input.type.startsWith("int")
-                      ? "0 — or {{variable}}"
-                      : `${input.type} — or {{variable}}`
-                }
+              <AbiArgInput
+                name={input.name}
+                type={input.type}
                 value={config.args[i] ?? ""}
-                onChange={(e) => {
+                contracts={contracts}
+                decimals={decimals}
+                unitLabel={contract?.name}
+                publicClient={publicClient}
+                onChange={(next) => {
                   const args = [...config.args];
-                  args[i] = e.target.value;
+                  args[i] = next;
                   onChange({ args });
                 }}
               />
@@ -135,13 +141,11 @@ export function CallBlock({
       {type === "write" && selectedFn?.stateMutability === "payable" && (
         <div className="grid grid-cols-[10rem_1fr] items-center gap-2">
           <Label className="justify-end text-right font-mono text-xs text-muted-foreground">
-            value <span className="text-muted-foreground/60">wei</span>
+            value <span className="text-muted-foreground/60">ETH</span>
           </Label>
-          <Input
-            className="h-8 font-mono text-xs"
-            placeholder="ETH value in wei — or {{variable}}"
+          <PayableValueInput
             value={config.value ?? ""}
-            onChange={(e) => onChange({ value: e.target.value })}
+            onChange={(next) => onChange({ value: next })}
           />
         </div>
       )}

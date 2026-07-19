@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import { CircleCheck } from "lucide-react";
+import type { PublicClient } from "viem";
 import {
   functionSignature,
   getFunctions,
@@ -10,6 +11,8 @@ import {
 import { evaluateCondition } from "@/lib/condition";
 import { useNotebookStore } from "@/stores/notebook-store";
 import type { ContractEntry, ExpectConfig, ExpectKind } from "@/lib/types";
+import { useTokenDecimals } from "@/hooks/use-token-decimals";
+import { AbiArgInput } from "@/components/notebook/abi-arg-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -42,17 +45,20 @@ export function ExpectBlock({
   config,
   editing,
   contracts,
+  publicClient,
   onChange,
 }: {
   config: ExpectConfig;
   editing: boolean;
   contracts: ContractEntry[];
+  publicClient?: PublicClient;
   onChange: (config: Partial<ExpectConfig>) => void;
 }) {
   const scope = useNotebookStore((s) => s.scope);
   const kind = config.kind ?? "condition";
 
   const contract = contracts.find((c) => c.id === config.contractId);
+  const { data: decimals } = useTokenDecimals(publicClient, contract);
   const functions = useMemo(
     () => (contract ? getWriteFunctions(contract.abi) : []),
     [contract],
@@ -279,18 +285,26 @@ export function ExpectBlock({
             </div>
             {selectedFn &&
               selectedFn.inputs.map((input, i) => (
-                <div key={i} className="grid gap-1.5">
-                  <Label className="text-xs text-muted-foreground">
-                    {input.name || `arg${i}`}{" "}
-                    <span className="text-muted-foreground/60">({input.type})</span>
+                <div
+                  key={i}
+                  className="grid grid-cols-[10rem_1fr] items-center gap-2"
+                >
+                  <Label className="justify-end truncate text-right font-mono text-xs text-muted-foreground">
+                    {input.name || `arg${i}`}
+                    <span className="text-muted-foreground/60"> {input.type}</span>
                   </Label>
-                  <Input
-                    className="font-mono text-xs"
+                  <AbiArgInput
+                    name={input.name}
+                    type={input.type}
                     value={config.args?.[i] ?? ""}
-                    onChange={(e) => {
+                    contracts={contracts}
+                    decimals={decimals}
+                    unitLabel={contract?.name}
+                    publicClient={publicClient}
+                    onChange={(next) => {
                       const args = [...(config.args ?? [])];
                       while (args.length < selectedFn.inputs.length) args.push("");
-                      args[i] = e.target.value;
+                      args[i] = next;
                       onChange({ args });
                     }}
                   />

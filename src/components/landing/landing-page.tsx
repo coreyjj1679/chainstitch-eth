@@ -409,8 +409,8 @@ export function LandingPage({
                   body: "Export any flow as a Safe batch — an executable multisig runbook for ops.",
                 },
                 {
-                  title: "Unit-aware inputs",
-                  body: "Token-decimal amount fields (1.5 USDC → 1500000), formatted outputs, and ENS + address-book autocomplete.",
+                  title: "Deploy blocks",
+                  body: "Deploy from a Foundry/Hardhat artifact; the new address becomes a variable and an address-book entry.",
                 },
               ].map((item) => (
                 <div key={item.title} className="rounded-xl border border-dashed bg-card/30 p-4">

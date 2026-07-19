@@ -296,6 +296,10 @@ downstream via `{{swaps[0].args.amount0}}`-style paths.
 - **Condition blocks** — an `if` group runs its blocks only when a condition
   on prior outputs holds (`{{allowance}} < {{amount}}` → approve only when
   needed); a per-block "run when" guard does the same for single cells.
+- **Unit-aware inputs** — amount fields know token decimals (`1.5` → raw
+  units), payable value accepts ETH, address args autocomplete from the
+  address book and resolve ENS, and results show `formatUnits` beside the
+  raw integer.
 - **Team workspaces** *(optional)* — Sign-In with Ethereum, invite-only access
   by wallet address, viewer / editor / owner roles. Share the whole workspace
   from Settings, or a single project from its Google-Docs-style **Share**

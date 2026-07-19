@@ -1353,6 +1353,7 @@ export function NotebookEditor({
           config={block.config as ExpectConfig}
           editing={isEditing}
           contracts={contracts}
+          publicClient={publicClient}
           onChange={(c) => updateBlockConfig(block.id, c)}
         />
       );
@@ -1383,6 +1384,7 @@ export function NotebookEditor({
         <EventBlock
           config={block.config as EventConfig}
           contracts={contracts}
+          publicClient={publicClient}
           onChange={(c) => updateBlockConfig(block.id, c)}
         />
       );
@@ -1392,6 +1394,7 @@ export function NotebookEditor({
         type={block.type}
         config={block.config as CallConfig}
         contracts={contracts}
+        publicClient={publicClient}
         onChange={(c) => updateBlockConfig(block.id, c)}
       />
     );

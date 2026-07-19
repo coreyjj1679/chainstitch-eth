@@ -34,6 +34,9 @@ jobs:
       - name: Expect-block unit tests
         run: npm run test:expect
 
+      - name: Unit-aware helpers
+        run: npm run test:units
+
       - name: Authorization test suite (roles & workspace isolation)
         run: npm run test:authz
 

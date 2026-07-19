@@ -248,9 +248,20 @@ export default function DocsPage() {
                 ["Text / Variable", "Markdown notes, and named constants usable as {{chips}} anywhere."],
                 ["Sender group", "Runs child blocks as a chosen caller (impersonation on anvil needs no keys)."],
                 ["If group / run-when", "Blocks run only when a condition on prior outputs holds ({{allowance}} < {{amount}})."],
+                ["Expect", "Hard assertion: condition, required event, or expected revert — fails Run all / CI when unmet."],
                 ["Recipe cell", "Reruns a saved recipe's steps in one click — see below."],
               ]}
             />
+            <p>
+              Amount args are unit-aware when the contract exposes{" "}
+              <Code>decimals()</Code>: enter <Code>1.5</Code> and the field
+              stores raw units (<Code>1500000</Code> for USDC). Toggle the unit
+              badge for raw / <Code>{"{{variable}}"}</Code> entry. Payable{" "}
+              <Code>value</Code> accepts ETH and stores wei. Address fields
+              autocomplete from the address book and resolve ENS names on blur.
+              Results show <Code>formatUnits</Code> next to the raw integer when
+              the value looks like a token amount.
+            </p>
             <p>
               Keyboard shortcuts follow Jupyter: <Code>B</Code> adds a block,{" "}
               <Code>M</Code> a markdown cell, <Code>Shift+Enter</Code> runs and

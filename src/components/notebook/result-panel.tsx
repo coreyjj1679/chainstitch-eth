@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -9,10 +9,28 @@ import {
   CircleSlash,
   ExternalLink,
 } from "lucide-react";
+import type { PublicClient } from "viem";
+import { createPublicClient, http } from "viem";
 import { displayValue } from "@/lib/serialize";
 import { findRevertCause, type CallFrame } from "@/lib/trace";
+import {
+  displayAbiValue,
+  formatIntegerWithUnits,
+  parseAbiDetailLabel,
+} from "@/lib/units";
+import { chainForProject } from "@/components/wallet/project-web3-provider";
+import { useTokenDecimals } from "@/hooks/use-token-decimals";
 import { useNotebookStore } from "@/stores/notebook-store";
-import type { BlockResult, DecodedEventEntry, Project } from "@/lib/types";
+import type {
+  BlockResult,
+  CallConfig,
+  ContractEntry,
+  DecodedEventEntry,
+  EventConfig,
+  ExpectConfig,
+  NotebookBlock,
+  Project,
+} from "@/lib/types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -45,12 +63,52 @@ function flattenDetails(record: Record<string, unknown>): DetailRow[] {
   return rows;
 }
 
+function functionNameFromDetails(
+  details?: Record<string, unknown>,
+): string | undefined {
+  const fn = details?.Function;
+  if (typeof fn !== "string") return undefined;
+  return fn.split("(")[0] || undefined;
+}
+
+function formatDetailCell(
+  label: string,
+  value: unknown,
+  opts?: {
+    decimals?: number | null;
+    unitLabel?: string;
+    functionName?: string;
+  },
+): string {
+  const parsed = parseAbiDetailLabel(label);
+  if (parsed) {
+    return displayAbiValue(value, {
+      type: parsed.type,
+      name: parsed.name || undefined,
+      functionName: opts?.functionName,
+      decimals: opts?.decimals,
+      unitLabel: opts?.unitLabel,
+    });
+  }
+  return displayValue(value);
+}
+
 /**
  * Key/value grid where every row — nested or not — uses the same label
  * column width and baseline, so the two columns stay vertically aligned.
  * Also used by the saved-run viewer.
  */
-export function DetailsGrid({ record }: { record: Record<string, unknown> }) {
+export function DetailsGrid({
+  record,
+  decimals,
+  unitLabel,
+  functionName,
+}: {
+  record: Record<string, unknown>;
+  decimals?: number | null;
+  unitLabel?: string;
+  functionName?: string;
+}) {
   const rows = flattenDetails(record);
   if (rows.length === 0) {
     return <p className="text-[11px] text-muted-foreground/60">Nothing to show.</p>;
@@ -74,7 +132,13 @@ export function DetailsGrid({ record }: { record: Record<string, unknown> }) {
             {row.label}
           </dt>
           <dd className="min-w-0 font-mono text-[11px] leading-5 break-all whitespace-pre-wrap text-foreground/90">
-            {row.header ? "" : displayValue(row.value)}
+            {row.header
+              ? ""
+              : formatDetailCell(row.label, row.value, {
+                  decimals,
+                  unitLabel,
+                  functionName,
+                })}
           </dd>
         </div>
       ))}
@@ -82,45 +146,81 @@ export function DetailsGrid({ record }: { record: Record<string, unknown> }) {
   );
 }
 
+function EventArgsGrid({
+  args,
+  contract,
+  publicClient,
+}: {
+  args: Record<string, unknown>;
+  contract?: ContractEntry;
+  publicClient?: PublicClient;
+}) {
+  const { data: decimals } = useTokenDecimals(publicClient, contract);
+  return (
+    <DetailsGrid
+      record={args}
+      decimals={decimals}
+      unitLabel={contract?.name}
+    />
+  );
+}
+
 /**
  * Receipt logs decoded against the address book: one card per event with
  * its emitter and an args grid — the "did the right event fire?" check.
  */
-function EventsList({ events }: { events: DecodedEventEntry[] }) {
+function EventsList({
+  events,
+  contracts,
+  publicClient,
+}: {
+  events: DecodedEventEntry[];
+  contracts: ContractEntry[];
+  publicClient?: PublicClient;
+}) {
   return (
     <div className="grid max-h-72 gap-1.5 overflow-y-auto">
-      {events.map((entry, i) => (
-        <div
-          key={`${entry.logIndex ?? i}-${entry.event}`}
-          className="rounded-md border border-border/40 px-2 py-1.5"
-        >
-          <div className="flex items-baseline gap-2">
-            <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">
-              [{entry.logIndex ?? i}]
-            </span>
-            <span
-              className={cn(
-                "min-w-0 truncate font-mono text-[11px]",
-                entry.args ? "font-medium text-emerald-400" : "text-muted-foreground",
-              )}
-              title={entry.event}
-            >
-              {entry.event}
-            </span>
-            <span
-              className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/60"
-              title={entry.address}
-            >
-              {entry.contract}
-            </span>
-          </div>
-          {entry.args && Object.keys(entry.args).length > 0 && (
-            <div className="mt-1 border-t border-border/40 pt-1">
-              <DetailsGrid record={entry.args} />
+      {events.map((entry, i) => {
+        const contract = contracts.find(
+          (c) => c.address.toLowerCase() === entry.address.toLowerCase(),
+        );
+        return (
+          <div
+            key={`${entry.logIndex ?? i}-${entry.event}`}
+            className="rounded-md border border-border/40 px-2 py-1.5"
+          >
+            <div className="flex items-baseline gap-2">
+              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/50">
+                [{entry.logIndex ?? i}]
+              </span>
+              <span
+                className={cn(
+                  "min-w-0 truncate font-mono text-[11px]",
+                  entry.args ? "font-medium text-emerald-400" : "text-muted-foreground",
+                )}
+                title={entry.event}
+              >
+                {entry.event}
+              </span>
+              <span
+                className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/60"
+                title={entry.address}
+              >
+                {entry.contract}
+              </span>
             </div>
-          )}
-        </div>
-      ))}
+            {entry.args && Object.keys(entry.args).length > 0 && (
+              <div className="mt-1 border-t border-border/40 pt-1">
+                <EventArgsGrid
+                  args={entry.args}
+                  contract={contract}
+                  publicClient={publicClient}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -196,7 +296,7 @@ function TraceFrame({ frame }: { frame: CallFrame }) {
       )}
       {frame.value !== undefined && frame.value > 0n && (
         <p className="ml-4 font-mono text-[10px] text-muted-foreground/60">
-          ↳ value: {frame.value.toString()} wei
+          ↳ value: {formatIntegerWithUnits(frame.value, 18, "ETH")}
         </p>
       )}
       {hasChildren && open && (
@@ -302,12 +402,21 @@ function DetailTabs({
   blockId,
   result,
   project,
+  contracts,
+  publicClient,
+  decimals,
+  unitLabel,
 }: {
   blockId: string;
   result: BlockResult;
   project: Project;
+  contracts: ContractEntry[];
+  publicClient?: PublicClient;
+  decimals?: number | null;
+  unitLabel?: string;
 }) {
   const history = useNotebookStore((s) => s.history[blockId]) ?? [];
+  const functionName = functionNameFromDetails(result.details);
 
   const runMeta: Record<string, unknown> = {
     ...(result.kind ? { Kind: result.kind } : {}),
@@ -359,12 +468,21 @@ function DetailTabs({
       </TabsList>
       {result.details && (
         <TabsContent value="call">
-          <DetailsGrid record={result.details} />
+          <DetailsGrid
+            record={result.details}
+            decimals={decimals}
+            unitLabel={unitLabel}
+            functionName={functionName}
+          />
         </TabsContent>
       )}
       {result.events && result.events.length > 0 && (
         <TabsContent value="events">
-          <EventsList events={result.events} />
+          <EventsList
+            events={result.events}
+            contracts={contracts}
+            publicClient={publicClient}
+          />
         </TabsContent>
       )}
       {result.trace && (
@@ -419,18 +537,93 @@ function DetailsToggle({
   );
 }
 
+function contractIdFromBlock(block?: NotebookBlock): string | undefined {
+  if (!block) return undefined;
+  const cfg = block.config as CallConfig | EventConfig | ExpectConfig;
+  if ("contractId" in cfg && typeof cfg.contractId === "string") {
+    return cfg.contractId || undefined;
+  }
+  return undefined;
+}
+
+function formatPrimaryValue(
+  result: BlockResult,
+  decimals?: number | null,
+  unitLabel?: string,
+): string {
+  const functionName = functionNameFromDetails(result.details);
+  const output = result.details?.Output;
+  if (isPlainObject(output)) {
+    const entries = Object.entries(output);
+    if (entries.length === 1) {
+      const [label, val] = entries[0];
+      const parsed = parseAbiDetailLabel(label);
+      if (parsed) {
+        return displayAbiValue(val, {
+          type: parsed.type,
+          name: parsed.name || undefined,
+          functionName,
+          decimals,
+          unitLabel,
+        });
+      }
+    }
+  }
+  if (typeof result.value === "bigint") {
+    return displayAbiValue(result.value, {
+      type: "uint256",
+      functionName,
+      decimals,
+      unitLabel,
+    });
+  }
+  return displayValue(result.value);
+}
+
 export function ResultPanel({
   blockId,
   result,
   project,
+  block,
+  contracts = [],
+  publicClient: publicClientProp,
 }: {
   blockId: string;
   result: BlockResult;
   project: Project;
+  block?: NotebookBlock;
+  contracts?: ContractEntry[];
+  publicClient?: PublicClient;
 }) {
   const showDetailsGlobal = useNotebookStore((s) => s.showDetails);
   const [showDetailsLocal, setShowDetailsLocal] = useState(false);
   const detailsOpen = showDetailsGlobal || showDetailsLocal;
+
+  const fallbackClient = useMemo(
+    () =>
+      createPublicClient({
+        chain: chainForProject(project),
+        transport: http(project.rpcUrl),
+      }) as PublicClient,
+    [project],
+  );
+  const publicClient = publicClientProp ?? fallbackClient;
+
+  const contract = useMemo(() => {
+    const id = contractIdFromBlock(block);
+    return id ? contracts.find((c) => c.id === id) : undefined;
+  }, [block, contracts]);
+  const { data: decimals } = useTokenDecimals(publicClient, contract);
+  const unitLabel = contract?.name;
+  const tabsProps = {
+    blockId,
+    result,
+    project,
+    contracts,
+    publicClient,
+    decimals,
+    unitLabel,
+  };
 
   if (result.status === "idle") return null;
 
@@ -465,14 +658,12 @@ export function ResultPanel({
             onToggle={() => setShowDetailsLocal((v) => !v)}
           />
         </div>
-        {detailsOpen && (
-          <DetailTabs blockId={blockId} result={result} project={project} />
-        )}
+        {detailsOpen && <DetailTabs {...tabsProps} />}
       </div>
     );
   }
 
-  const text = displayValue(result.value);
+  const text = formatPrimaryValue(result, decimals, unitLabel);
   const isLong = text.length > 400 || text.includes("\n");
 
   return (
@@ -523,9 +714,7 @@ export function ResultPanel({
       >
         {text}
       </pre>
-      {detailsOpen && (
-        <DetailTabs blockId={blockId} result={result} project={project} />
-      )}
+      {detailsOpen && <DetailTabs {...tabsProps} />}
     </div>
   );
 }
