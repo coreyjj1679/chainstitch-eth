@@ -29,6 +29,7 @@ import {
   Braces,
   ChevronsDownUp,
   ChevronsUpDown,
+  CircleCheck,
   Code2,
   Copy,
   Download,
@@ -55,6 +56,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { runBlock, shortError, type TracedError } from "@/lib/engine";
 import { evaluateCondition } from "@/lib/condition";
+import { runNotebook } from "@/lib/run-notebook";
 import { interpolate } from "@/lib/variables";
 import {
   blockLabel,
@@ -79,6 +81,7 @@ import { MarkdownBlock } from "@/components/notebook/markdown-block";
 import { SenderBlock } from "@/components/notebook/sender-block";
 import { VariableBlock } from "@/components/notebook/variable-block";
 import { IfBlock } from "@/components/notebook/if-block";
+import { ExpectBlock } from "@/components/notebook/expect-block";
 import { RecipeBlock } from "@/components/notebook/recipe-block";
 import { CodePanel } from "@/components/notebook/code-panel";
 import { ImportTestDialog } from "@/components/notebook/import-test-dialog";
@@ -92,6 +95,7 @@ import type {
   CallConfig,
   ContractEntry,
   EventConfig,
+  ExpectConfig,
   IfConfig,
   MarkdownConfig,
   NotebookBlock,
@@ -159,6 +163,12 @@ const BLOCK_TYPES: Array<{
     label: "Condition",
     description: "Run blocks only when a condition holds",
     icon: GitBranch,
+  },
+  {
+    type: "expect",
+    label: "Expect",
+    description: "Assert a condition, event, or revert — fails the run",
+    icon: CircleCheck,
   },
   {
     type: "recipe",
@@ -930,7 +940,7 @@ export function NotebookEditor({
         .blocks.filter(
           (b) =>
             b.parentId === parentId &&
-            (isRunnableType(b.type) || b.type === "recipe"),
+            (isRunnableType(b.type) || b.type === "recipe" || b.type === "expect"),
         );
       for (const child of children) {
         setResult(child.id, {
@@ -950,6 +960,24 @@ export function NotebookEditor({
       opts?: { mode?: "execute" | "simulate"; sender?: `0x${string}` },
     ): Promise<boolean> => {
       if (block.type === "recipe") return runRecipeBlock(block, opts);
+      if (block.type === "expect") {
+        const summary = await runNotebook(
+          // Run only this expect against the live scope (no other cells).
+          [block],
+          {
+            publicClient,
+            contracts,
+            initialScope: useNotebookStore.getState().scope,
+            wagmiConfig,
+            account,
+            mode: opts?.mode ?? "execute",
+            defaultSender: opts?.mode === "simulate" ? opts.sender : undefined,
+            recipes,
+            onBlockResult: (id, result) => setResult(id, result),
+          },
+        );
+        return summary.ok;
+      }
       if (block.type !== "if") return runCallBlock(block, opts);
       const verdict = evaluateIfBlock(block);
       if (verdict === null) return false;
@@ -980,6 +1008,12 @@ export function NotebookEditor({
       markChildrenSkipped,
       checkRunWhen,
       skipUnconfigured,
+      publicClient,
+      contracts,
+      wagmiConfig,
+      account,
+      recipes,
+      setResult,
     ],
   );
 
@@ -1041,77 +1075,61 @@ export function NotebookEditor({
 
   /** Runs every block in execution order. With `simulateAs`, writes are
    *  eth_call'd (no wallet, nothing sent); sender groups override the caller.
-   *  Condition groups gate their children: false skips them, errors stop. */
+   *  Condition groups gate their children: false skips them, errors stop.
+   *  Expect blocks fail the run when unmet. */
   const runAllWith = useCallback(
     async (simulateAs?: `0x${string}`) => {
       setRunning(true);
       // Jupyter-style: outputs restart, the exec counter and history continue.
       beginRunAll();
       const all = useNotebookStore.getState().blocks;
-      const opts = simulateAs
-        ? ({ mode: "simulate", sender: simulateAs } as const)
+      const stored = useSignerStore.getState().signers[project.id];
+      const localSigner = stored
+        ? (() => {
+            const signerAccount = privateKeyToAccount(stored.privateKey);
+            return {
+              account: signerAccount,
+              walletClient: createWalletClient({
+                account: signerAccount,
+                chain: chainForProject(project),
+                transport: http(project.rpcUrl),
+              }),
+            };
+          })()
         : undefined;
-      const skipped = new Set<string>();
-      let failed = false;
-      for (const block of executionOrder(all)) {
-        if (skipped.has(block.id)) continue;
-        if (block.type === "if") {
-          if (skipUnconfigured(block)) {
-            for (const child of all.filter((b) => b.parentId === block.id)) {
-              skipped.add(child.id);
-            }
-            markChildrenSkipped(block.id, "Skipped — configure the condition group first");
-            continue;
-          }
-          const verdict = evaluateIfBlock(block);
-          if (verdict === null) {
-            failed = true;
-            break;
-          }
-          if (!verdict) {
-            for (const child of all.filter((b) => b.parentId === block.id)) {
-              skipped.add(child.id);
-            }
-            markChildrenSkipped(block.id);
-          }
-          continue;
-        }
-        if (block.type === "recipe") {
-          if (skipUnconfigured(block)) continue;
-          const ok = await runRecipeBlock(block, opts);
-          if (!ok) {
-            failed = true;
-            break;
-          }
-          continue;
-        }
-        if (!isRunnableType(block.type)) continue;
-        if (skipUnconfigured(block)) continue;
-        const gate = checkRunWhen(block);
-        if (gate === null) {
-          failed = true;
-          break;
-        }
-        if (!gate) continue;
-        const ok = await runCallBlock(block, opts);
-        if (!ok) {
-          failed = true;
-          break;
-        }
+
+      const summary = await runNotebook(all, {
+        publicClient,
+        contracts,
+        initialScope: useNotebookStore.getState().scope,
+        wagmiConfig,
+        account,
+        mode: simulateAs ? "simulate" : "execute",
+        defaultSender: simulateAs,
+        localSigner,
+        recipes,
+        onBlockResult: (id, result) => setResult(id, result),
+      });
+
+      // Sync final scope (variable blocks + outputs) into the store.
+      for (const [key, value] of Object.entries(summary.scope)) {
+        setScopeVariable(key, value);
       }
-      if (failed) toast.error("Run stopped: a block failed");
-      // Recipe test runs are session-only; viewers can't persist anything.
+
+      if (!summary.ok) toast.error("Run stopped: a block failed");
       if (!isRecipeDoc && !readOnly) await saveRunRecord(!!simulateAs);
       setRunning(false);
     },
     [
       beginRunAll,
-      runCallBlock,
-      runRecipeBlock,
-      evaluateIfBlock,
-      markChildrenSkipped,
-      checkRunWhen,
-      skipUnconfigured,
+      publicClient,
+      contracts,
+      wagmiConfig,
+      account,
+      project,
+      recipes,
+      setResult,
+      setScopeVariable,
       saveRunRecord,
       isRecipeDoc,
       readOnly,
@@ -1325,6 +1343,16 @@ export function NotebookEditor({
         <IfBlock
           config={block.config as IfConfig}
           editing={isEditing}
+          onChange={(c) => updateBlockConfig(block.id, c)}
+        />
+      );
+    }
+    if (block.type === "expect") {
+      return (
+        <ExpectBlock
+          config={block.config as ExpectConfig}
+          editing={isEditing}
+          contracts={contracts}
           onChange={(c) => updateBlockConfig(block.id, c)}
         />
       );

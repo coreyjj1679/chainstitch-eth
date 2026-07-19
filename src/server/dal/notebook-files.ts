@@ -209,7 +209,12 @@ async function resolveNotebookFile(
 
   const blocks: ResolvedBlock[] = file.blocks.map((block, index) => {
     const config = { ...block.config };
-    if (typeof config.contract === "string") {
+    // expect/event uses "contract" as an optional display-name filter, not an
+    // address-book reference — leave it alone. Revert expects (and call blocks)
+    // map contract → contractId as usual.
+    const eventFilterOnly =
+      block.type === "expect" && config.kind === "event";
+    if (typeof config.contract === "string" && !eventFilterOnly) {
       const key = config.contract.toLowerCase();
       // The file's own contracts win; otherwise fall back to the project's
       // address book, so files don't need to embed ABIs the instance has.
@@ -222,7 +227,11 @@ async function resolveNotebookFile(
       }
       config.contractId = resolved;
       delete config.contract;
-    } else if (typeof config.contractId === "string" && !existingIds.has(config.contractId)) {
+    } else if (
+      !eventFilterOnly &&
+      typeof config.contractId === "string" &&
+      !existingIds.has(config.contractId)
+    ) {
       warnings.push(
         `Block ${index + 1} referenced a contract id that does not exist in this project — it will need reconfiguring.`,
       );

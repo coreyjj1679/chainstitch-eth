@@ -10,7 +10,40 @@ export type BlockType =
   | "sender"
   | "variable"
   | "if"
-  | "recipe";
+  | "recipe"
+  | "expect";
+
+/** Assertion kinds for `expect` blocks (fail the run when unmet). */
+export type ExpectKind = "condition" | "event" | "revert";
+
+/**
+ * Assertion cell: unlike `if` (soft skip), an unmet expect stops Run all
+ * with status error. `revert` simulates a call and requires it to fail.
+ */
+export interface ExpectConfig {
+  kind: ExpectKind;
+  /** kind=condition — same grammar as if / runWhen */
+  condition?: string;
+  /** kind=event — event name to find in decoded logs */
+  eventName?: string;
+  /**
+   * kind=event — optional address-book contract name filter (matches the
+   * decoded entry's `contract` field, case-insensitive).
+   */
+  contract?: string;
+  /**
+   * kind=event — scope path to a DecodedEventEntry[] (e.g. from an events
+   * block). Empty = use the last successful write's receipt events.
+   */
+  fromVariable?: string;
+  /** kind=revert — CallConfig fields for the simulated call */
+  contractId?: string;
+  functionName?: string;
+  args?: string[];
+  value?: string;
+  /** kind=revert — optional substring match on revert reason / error name */
+  reason?: string;
+}
 
 export interface CallConfig {
   contractId: string;
@@ -87,7 +120,8 @@ export type BlockConfig =
   | SenderConfig
   | VariableConfig
   | IfConfig
-  | RecipeBlockConfig;
+  | RecipeBlockConfig
+  | ExpectConfig;
 
 export interface NotebookBlock {
   id: string;

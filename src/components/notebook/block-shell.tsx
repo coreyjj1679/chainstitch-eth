@@ -8,6 +8,7 @@ import {
   BookmarkPlus,
   Braces,
   Check,
+  CircleCheck,
   Code2,
   Copy,
   Eye,
@@ -84,6 +85,12 @@ const TYPE_META = {
     icon: GitBranch,
     badge: "text-fuchsia-400 border-fuchsia-400/30 bg-fuchsia-400/10",
     accent: "bg-fuchsia-400",
+  },
+  expect: {
+    label: "Expect",
+    icon: CircleCheck,
+    badge: "text-rose-400 border-rose-400/30 bg-rose-400/10",
+    accent: "bg-rose-400",
   },
   recipe: {
     label: "Recipe",

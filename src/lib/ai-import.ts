@@ -94,6 +94,7 @@ const IMPORTABLE_TYPES: BlockType[] = [
   "variable",
   "sender",
   "if",
+  "expect",
 ];
 
 /** Anvil's default funded accounts — natural stand-ins for test actors. */
@@ -196,7 +197,11 @@ BLOCK TYPES and their "config":
 ${rpcCatalog()}
   For anvil cheatcodes use method id "custom": params[0] = the raw JSON-RPC method name, params[1] = its params as a JSON array string. Example vm.deal(alice, 10 ether): {"method": "custom", "params": ["anvil_setBalance", "[\\"{{alice}}\\", \\"0x8ac7230489e80000\\"]"]}.
 - "sender": {"address": "{{alice}}", "simulateOnly": false} — a GROUP: child blocks carry this block's id as their "parentId" and execute as that caller. simulateOnly false = real writes via anvil impersonation (right for converted tests); true = dry-run only.
-- "if": {"condition": "{{bal}} == 1000000"} — evaluates and displays true/false. Use one per assertion. Condition grammar is EXACTLY one comparison: operand [op operand], op ∈ == != < <= > >=, operands are {{var}} / {{var.path}} references or literals (integers, decimals, 0x hex, "quoted strings", true/false), optional leading "!". NO &&, ||, or arithmetic — split compound assertions into several if blocks, and precompute any arithmetic into a variable via a warning if impossible.
+- "if": {"condition": "{{bal}} == 1000000"} — soft control-flow group; children run only when true. Condition grammar is EXACTLY one comparison: operand [op operand], op ∈ == != < <= > >=, operands are {{var}} / {{var.path}} references or literals (integers, decimals, 0x hex, "quoted strings", true/false), optional leading "!". NO &&, ||, or arithmetic.
+- "expect": assertion that FAILS the notebook run when unmet (prefer this for forge asserts):
+  - {"kind": "condition", "condition": "{{bal}} == 1000000"}
+  - {"kind": "event", "eventName": "Transfer", "contract"?: "Token"} — after a write
+  - {"kind": "revert", "functionName": "withdraw", "args": ["…"], "reason"?: "…"} + top-level "contract"
 
 RULES:
 - Never output type "recipe".
@@ -211,9 +216,9 @@ CHEATCODE MAPPING:
 - vm.warp(ts) → custom evm_setNextBlockTimestamp [ts], then custom evm_mine [].
 - skip/relative time → custom evm_increaseTime [seconds], then custom evm_mine [].
 - vm.roll(n) → custom anvil_mine with the needed block count, plus a warning that heights are approximate.
-- vm.expectRevert(...) → keep the call block, precede it with a markdown note "expected to revert: <reason>" and add a warning.
+- vm.expectRevert(...) → an "expect" block with kind "revert" for the call (contract + functionName + args + optional reason), not a write that fails mid-run.
 - makeAddr("name") / test actors → "variable" blocks mapped to anvil's default accounts, in order: ${ANVIL_ACCOUNTS.join(", ")}. Note the mapping in a markdown block.
-- assertEq/assertGt/assertTrue/... → save the relevant read into an outputVariable, then an "if" block encoding the expectation.
+- assertEq/assertGt/assertTrue/... → save the relevant read into an outputVariable, then an "expect" block with kind "condition" encoding the expectation (NOT a soft "if").
 - Fuzz test parameters → pin one sensible concrete value as a "variable" block and add a warning.
 
 SETUP & CONTRACTS:
@@ -467,6 +472,65 @@ function mapBlocks(
         const condition = str(rawConfig.condition).trim();
         checkRefs(condition);
         config = { condition };
+        break;
+      }
+      case "expect": {
+        const kind = str(rawConfig.kind).trim() || "condition";
+        if (kind === "condition") {
+          const condition = str(rawConfig.condition).trim();
+          checkRefs(condition);
+          config = { kind: "condition", condition };
+        } else if (kind === "event") {
+          const eventName = str(rawConfig.eventName).trim();
+          const contractFilter = str(rawConfig.contract).trim();
+          const fromVariable = str(rawConfig.fromVariable).trim().replace(/[{}]/g, "");
+          config = {
+            kind: "event",
+            eventName,
+            ...(contractFilter ? { contract: contractFilter } : {}),
+            ...(fromVariable ? { fromVariable } : {}),
+          };
+        } else if (kind === "revert") {
+          const functionName = str(rawConfig.functionName).trim();
+          const args = toFormStrings(rawConfig.args);
+          const value = strOrNull(rawConfig.value);
+          const reason = str(rawConfig.reason).trim();
+          const contractName = str(entry.contract).trim() || str(rawConfig.contract).trim();
+          const contract = contracts.find(
+            (c) => c.name.toLowerCase() === contractName.toLowerCase(),
+          );
+          const supplied = contract
+            ? undefined
+            : extraAbis.find((a) => a.name.toLowerCase() === contractName.toLowerCase());
+          if (contract && functionName) {
+            checkCall(position, contract.name, contract.abi, functionName, args);
+          } else if (supplied && functionName) {
+            checkCall(position, supplied.name, supplied.abi, functionName, args);
+          }
+          if (!contract && contractName) {
+            const key = contractName.toLowerCase();
+            const entry_ = missing.get(key) ?? {
+              name: supplied?.name ?? contractName,
+              abi: supplied?.abi,
+              blockIds: [],
+            };
+            entry_.blockIds.push(id);
+            missing.set(key, entry_);
+          }
+          args.forEach(checkRefs);
+          if (value) checkRefs(value);
+          config = {
+            kind: "revert",
+            contractId: contract?.id ?? "",
+            functionName,
+            args,
+            ...(value ? { value } : {}),
+            ...(reason ? { reason } : {}),
+          };
+        } else {
+          warnings.push(`${position}: unknown expect kind "${kind}" — skipped`);
+          return;
+        }
         break;
       }
       case "rpc": {

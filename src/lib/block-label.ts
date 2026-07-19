@@ -3,6 +3,7 @@ import type {
   CallConfig,
   ContractEntry,
   EventConfig,
+  ExpectConfig,
   IfConfig,
   MarkdownConfig,
   NotebookBlock,
@@ -23,9 +24,14 @@ export function isRunnableType(type: BlockType): boolean {
   return type === "read" || type === "write" || type === "rpc" || type === "event";
 }
 
-/** Blocks that produce a result cell (runnables plus `if` and recipe cells). */
+/** Blocks that produce a result cell (runnables plus control / assert cells). */
 export function isExecutableType(type: BlockType): boolean {
-  return isRunnableType(type) || type === "if" || type === "recipe";
+  return (
+    isRunnableType(type) ||
+    type === "if" ||
+    type === "recipe" ||
+    type === "expect"
+  );
 }
 
 /** Constants declared by variable blocks, as a { name: value } scope. */
@@ -88,6 +94,24 @@ export function blockLabel(
       const condition = (block.config as IfConfig).condition;
       return condition ? `if ${condition}` : "Condition (unconfigured)";
     }
+    case "expect": {
+      const config = block.config as ExpectConfig;
+      if (config.kind === "condition") {
+        const condition = config.condition?.trim();
+        return condition ? `expect ${condition}` : "Expect (unconfigured)";
+      }
+      if (config.kind === "event") {
+        const name = config.eventName?.trim();
+        return name ? `expect event ${name}` : "Expect event (unconfigured)";
+      }
+      if (config.kind === "revert") {
+        const fn = config.functionName?.trim();
+        return fn
+          ? `expect revert ${fn}${config.reason ? ` (${config.reason})` : ""}`
+          : "Expect revert (unconfigured)";
+      }
+      return "Expect (unconfigured)";
+    }
     case "recipe": {
       const recipeId = (block.config as RecipeBlockConfig).recipeId;
       if (!recipeId) return "Recipe (unconfigured)";
@@ -134,6 +158,19 @@ export function isBlockConfigured(block: NotebookBlock): boolean {
       return !!(block.config as VariableConfig).name;
     case "if":
       return ((block.config as IfConfig).condition ?? "").trim().length > 0;
+    case "expect": {
+      const config = block.config as ExpectConfig;
+      if (config.kind === "condition") {
+        return ((config.condition ?? "").trim().length > 0);
+      }
+      if (config.kind === "event") {
+        return !!config.eventName?.trim();
+      }
+      if (config.kind === "revert") {
+        return !!config.contractId && !!config.functionName;
+      }
+      return false;
+    }
     case "recipe":
       return !!(block.config as RecipeBlockConfig).recipeId;
   }

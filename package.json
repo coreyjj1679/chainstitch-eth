@@ -7,10 +7,17 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "chainstitch": "tsx src/cli/main.ts",
     "smoke": "tsx scripts/smoke.ts",
+    "test:expect": "tsx --test scripts/test-expect.ts",
+    "test:run-notebook": "tsx --test scripts/test-run-notebook.ts",
+    "test:cli-runner": "tsx --test scripts/test-cli-runner.ts",
     "test:authz": "tsx --conditions=react-server scripts/authz-test.ts",
     "test:team": "tsx --conditions=react-server scripts/team-e2e.ts",
     "test:ai-import": "tsx scripts/ai-import-check.ts"
+  },
+  "bin": {
+    "chainstitch": "./bin/chainstitch.js"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

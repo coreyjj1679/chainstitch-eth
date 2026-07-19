@@ -30,6 +30,8 @@ function defaultConfig(type: BlockType): BlockConfig {
       return { name: "", value: "" };
     case "if":
       return { condition: "" };
+    case "expect":
+      return { kind: "condition", condition: "" };
     case "recipe":
       return { recipeId: "" };
   }

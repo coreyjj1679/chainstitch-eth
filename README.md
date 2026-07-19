@@ -216,6 +216,32 @@ read the in-app docs (`/docs`, "AI agents & MCP"). Tools are
 read/write on definitions only — execution stays in your browser, writes
 stay signed by your wallet.
 
+### Expect blocks + headless runner (`chainstitch run`)
+
+Turn a notebook into a CI check. Add an **Expect** cell that fails the
+run when unmet (unlike a soft Condition group):
+
+| Kind | What it checks |
+| --- | --- |
+| `condition` | Same grammar as `if` / run-when — e.g. `{{balance}} > 0` |
+| `event` | A decoded event on the last write (or from a variable) |
+| `revert` | Simulates a call and requires it to revert (optional reason) |
+
+Export the notebook (or let an agent write a `chainstitch-notebook` file),
+then run it headlessly against local anvil or a fork:
+
+```bash
+# against a running anvil
+npx chainstitch run ./flow.notebook.json --rpc-url http://127.0.0.1:8545
+
+# spawn a fresh fork, exit non-zero if any expect fails
+npx chainstitch run ./flow.notebook.json --fork-url $ETH_RPC_URL
+```
+
+Writes on anvil use sender-group impersonation (or pass `--private-key` for
+a burner). The CLI never talks to the Chainstitch server — private keys and
+RPC URLs stay in your process. Exit code `0` = all expects passed.
+
 ### Version history & saved runs
 
 Notebooks keep a Google-Docs-style edit history: every save is recorded

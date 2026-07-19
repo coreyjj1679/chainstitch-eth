@@ -33,8 +33,8 @@ import type { Abi, AbiFunction } from "viem";
  *
  * Sessions: none (each request is independent, as the spec's stateless mode
  * allows). Execution tools are intentionally absent: block execution is
- * browser-side by design (see CONTRIBUTING invariants), until the headless
- * runner ships.
+ * browser-side by design (see CONTRIBUTING invariants). Headless runs use
+ * the CLI (`npx chainstitch run`); MCP execution tools can ride that later.
  */
 
 const SERVER_NAME = "chainstitch";

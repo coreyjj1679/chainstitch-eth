@@ -9,6 +9,7 @@ import {
   Braces,
   ChevronDown,
   ChevronRight,
+  CircleCheck,
   Copy,
   Database,
   Eye,
@@ -53,6 +54,7 @@ const BLOCK_ICONS: Record<BlockType, typeof Eye> = {
   sender: UserRound,
   variable: Variable,
   if: GitBranch,
+  expect: CircleCheck,
   recipe: BookMarked,
 };
 

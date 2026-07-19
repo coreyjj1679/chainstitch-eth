@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     ".next-e2e/**",
     ".next-build/**",
     ".next-capture/**",
+    // Plain Node launcher for the CLI (`#!/usr/bin/env node` + require).
+    "bin/**",
   ]),
 ]);
 

@@ -537,6 +537,45 @@ async function main() {
     "tx import wraps calls in a sender group for the original sender",
   );
 
+  // 16. expect blocks via runNotebook
+  const { runNotebook } = await import("../src/lib/run-notebook");
+  const expectPass = await runNotebook(
+    [
+      {
+        id: "r",
+        type: "read",
+        config: { contractId: "c1", functionName: "number", args: [] },
+        outputVariable: "n",
+      },
+      {
+        id: "e",
+        type: "expect",
+        config: { kind: "condition", condition: "{{n}} == 314" },
+        outputVariable: null,
+      },
+    ],
+    { publicClient, contracts: [contract] },
+  );
+  assert(expectPass.ok, "expect condition passes against on-chain state");
+
+  const expectFail = await runNotebook(
+    [
+      {
+        id: "e",
+        type: "expect",
+        config: {
+          kind: "revert",
+          contractId: "c1",
+          functionName: "setChecked",
+          args: ["1"],
+        },
+        outputVariable: null,
+      },
+    ],
+    { publicClient, contracts: [contract] },
+  );
+  assert(!expectFail.ok, "expect revert fails when the call succeeds");
+
   console.log("\nAll smoke tests passed.");
 }
 

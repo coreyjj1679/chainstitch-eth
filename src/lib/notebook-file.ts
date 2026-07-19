@@ -1,11 +1,10 @@
 import type { Abi } from "viem";
 import { validateAbi } from "@/lib/abi";
 import { isGroupType } from "@/lib/block-label";
+import { parseExpectConfig } from "@/lib/expect";
 import type {
   BlockType,
-  CallConfig,
   ContractEntry,
-  EventConfig,
   NotebookBlock,
 } from "@/lib/types";
 
@@ -70,13 +69,20 @@ const BLOCK_TYPES: readonly BlockType[] = [
   "variable",
   "if",
   "recipe",
+  "expect",
 ];
 
 /** Block types whose config references an address-book contract. */
 const CONTRACT_BLOCK_TYPES: readonly BlockType[] = ["read", "write", "event"];
 
-function referencesContract(type: BlockType): boolean {
-  return CONTRACT_BLOCK_TYPES.includes(type);
+function referencesContract(
+  type: BlockType,
+  config?: Record<string, unknown>,
+): boolean {
+  if (CONTRACT_BLOCK_TYPES.includes(type)) return true;
+  // Revert expects embed a CallConfig-style contract reference.
+  if (type === "expect" && config?.kind === "revert") return true;
+  return false;
 }
 
 // --- Export ------------------------------------------------------------------
@@ -98,9 +104,10 @@ export function buildNotebookFile(
 ): NotebookFile {
   const referencedIds = new Set<string>();
   for (const block of blocks) {
-    if (!referencesContract(block.type)) continue;
-    const contractId = (block.config as CallConfig | EventConfig).contractId;
-    if (contractId) referencedIds.add(contractId);
+    const cfg = block.config as unknown as Record<string, unknown>;
+    if (!referencesContract(block.type, cfg)) continue;
+    const contractId = cfg.contractId;
+    if (typeof contractId === "string" && contractId) referencedIds.add(contractId);
   }
 
   const usedNames = new Set<string>();
@@ -119,7 +126,10 @@ export function buildNotebookFile(
 
   const fileBlocks: NotebookFileBlock[] = blocks.map((block) => {
     const config = { ...(block.config as unknown as Record<string, unknown>) };
-    if (referencesContract(block.type) && typeof config.contractId === "string") {
+    if (
+      referencesContract(block.type, config) &&
+      typeof config.contractId === "string"
+    ) {
       const name = fileNameById.get(config.contractId);
       delete config.contractId;
       // Unresolvable ids (deleted contract) export as-is minus the id; the
@@ -351,6 +361,15 @@ export function parseNotebookFile(input: unknown): ParsedNotebookFile {
         config.condition = condition;
         break;
       }
+      case "expect": {
+        const parsed = parseExpectConfig(config);
+        if (!parsed.ok) return { ok: false, error: `${label}: ${parsed.error}` };
+        // Replace config with the normalized expect shape (keeps contract
+        // name for revert so the shared resolver below can map it).
+        for (const key of Object.keys(config)) delete config[key];
+        Object.assign(config, parsed.config);
+        break;
+      }
       case "recipe":
         // recipeId is instance-local; resolution happens at import time.
         break;
@@ -360,7 +379,7 @@ export function parseNotebookFile(input: unknown): ParsedNotebookFile {
     // resolve on import against the file's contracts array first, then the
     // target project's address book — so a file can lean on ABIs the
     // instance already has instead of embedding them.
-    if (referencesContract(type)) {
+    if (referencesContract(type, config)) {
       const ref = coerceString(config.contract)?.trim();
       const legacyId = coerceString(config.contractId)?.trim();
       if (ref) {
@@ -464,13 +483,17 @@ Block types and their config:
 - "markdown" — { text } — prose; {{vars}} interpolate.
 - "variable" — { name, value } — a named constant.
 - "sender"   — { address, simulateOnly?: boolean } — group; child blocks call as this address (simulation, or anvil impersonation when simulateOnly is false).
-- "if"       — { condition } — group; children run only when the condition holds, e.g. "{{allowance}} < {{amount}}".
+- "if"       — { condition } — group; children run only when the condition holds, e.g. "{{allowance}} < {{amount}}". Soft skip when false (does NOT fail the run).
+- "expect"   — assertion that FAILS the run when unmet (unlike "if"):
+  - { "kind": "condition", "condition": "{{balance}} > 0" } — same grammar as "if".
+  - { "kind": "event", "eventName": "Transfer", "contract"?: "USDC", "fromVariable"?: "swaps" } — require a decoded event in the last write's receipt (or in {{fromVariable}}).
+  - { "kind": "revert", "contract": "Vault", "functionName": "withdraw", "args": ["…"], "reason"?: "Insufficient" } — simulate the call and require it to revert (optional reason substring).
 - "recipe"   — { recipeId } — instance-local reference to a saved recipe; only meaningful inside the same instance.
 
 Rules:
 - Every value in "args"/"params"/"filters" is a string; {{variable}} references are allowed anywhere.
 - Numbers are plain decimal strings in base units (wei for ETH, raw units for tokens — no decimals applied).
-- "contract" names an entry of the file's "contracts" array, or (fallback) a contract already in the target project's address book. File contracts are matched to the address book by address, then by name; entries the project lacks are created on import.
+- "contract" names an entry of the file's "contracts" array, or (fallback) a contract already in the target project's address book. File contracts are matched to the address book by address, then by name; entries the project lacks are created on import. (On expect/event, "contract" is an optional name filter, not an address-book lookup.)
 - Groups ("sender"/"if") are one level deep: a group cannot be inside a group. Children reference their group via "parentId" (the group's "id" within this file).
 - "runWhen" on a non-group block is a per-block condition guard with the same grammar as "if".
 - Block "id"s are optional and only need to be unique within the file (imports mint fresh ids).

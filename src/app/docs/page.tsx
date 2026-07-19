@@ -22,6 +22,7 @@ const TOC = [
   ["state", "State tab"],
   ["codegen", "Codegen & AI import"],
   ["agents", "AI agents & MCP"],
+  ["ci", "Expect blocks & CI"],
   ["anvil", "Local chains & forks"],
   ["team-mode", "Team mode & self-hosting"],
   ["security", "Security & your data"],
@@ -372,8 +373,37 @@ export default function DocsPage() {
             </p>
             <p>
               Agents create and read <em>definitions</em>; execution stays in
-              your browser and writes stay signed by your wallet. Execution
-              tools (agent hits Run) ride the headless runner on the roadmap.
+              your browser (or the CLI below). Writes stay signed by your
+              wallet — the server never holds keys.
+            </p>
+          </Section>
+
+          <Section id="ci" title="Expect blocks & CI">
+            <p>
+              An <strong>Expect</strong> cell fails the run when unmet (unlike
+              a soft Condition group that only skips children):
+            </p>
+            <DocsTable
+              head={["Kind", "Checks"]}
+              rows={[
+                ["condition", "{{balance}} > 0 — same grammar as if / run-when"],
+                ["event", "Decoded event on the last write (or from a variable)"],
+                ["revert", "Simulates a call and requires it to revert (optional reason)"],
+              ]}
+            />
+            <p>
+              Export the notebook as a <Code>chainstitch-notebook</Code> file
+              and run it headlessly — exit code non-zero when any expect fails:
+            </p>
+            <Pre>{`# local anvil
+npx chainstitch run ./flow.notebook.json --rpc-url http://127.0.0.1:8545
+
+# fresh fork
+npx chainstitch run ./flow.notebook.json --fork-url $ETH_RPC_URL`}</Pre>
+            <p>
+              Writes use sender-group impersonation on anvil, or pass{" "}
+              <Code>--private-key</Code> for a burner. The CLI does not talk
+              to the Chainstitch server.
             </p>
           </Section>
 

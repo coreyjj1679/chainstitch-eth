@@ -35,6 +35,9 @@ npm run dev
 | `src/lib/notebook-file.ts` | Portable notebook manifest (`chainstitch-notebook` v1): build, validate, format doc |
 | `src/server/mcp.ts` | MCP server (`/api/mcp`) — agent tools as thin DAL wrappers |
 | `src/server/dal/api-tokens.ts` | Personal API tokens for team-mode MCP (Bearer auth) |
+| `src/lib/run-notebook.ts` | Shared Run-all / CLI notebook runner |
+| `src/lib/expect.ts` | Expect-block evaluation (condition / event / revert) |
+| `src/cli/main.ts` | `chainstitch run` headless CLI |
 | `src/lib/variables.ts` | `{{variable}}` interpolation |
 | `src/components/notebook/` | The notebook editor UI (blocks, results, code panels) |
 | `src/stores/notebook-store.ts` | Editor state (Zustand), including read-only gating |
@@ -67,15 +70,20 @@ npm run dev
 ## Checks to run before a PR
 
 ```bash
-npm run lint         # eslint
-npx tsc --noEmit     # typecheck
-npm run test:authz   # role & workspace isolation rules (temp DB, fast)
-npm run test:team    # end-to-end SIWE login/invite/role flow (~20s)
-npm run smoke        # only if you touched the engine — needs anvil running
+npm run lint              # eslint
+npx tsc --noEmit          # typecheck
+npm run test:expect       # expect-block unit tests (no chain)
+npm run test:authz        # role & workspace isolation rules (temp DB, fast)
+npm run test:team         # end-to-end SIWE login/invite/role flow (~20s)
+npm run smoke             # engine vs anvil — needs anvil running
+npm run test:run-notebook # runNotebook + expects vs anvil
+npm run test:cli-runner   # chainstitch run exit codes vs anvil
 ```
 
-CI runs all of these (plus a production build) on every PR. The two test
-suites create their own throwaway databases and never touch `data/`.
+CI runs all of these (plus a production build) on every PR. Auth suites
+create their own throwaway databases and never touch `data/`. Headless
+execution lives in the **CLI** (`npx chainstitch run`) — never add
+server-side signing or chain calls (invariant #2).
 
 ## Pull requests
 

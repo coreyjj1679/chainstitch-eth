@@ -6,6 +6,7 @@ import type {
   CallConfig,
   ContractEntry,
   EventConfig,
+  ExpectConfig,
   IfConfig,
   NotebookBlock,
   Project,
@@ -653,6 +654,20 @@ export function generateBlockCode(
   if (block.type === "if") {
     const condition = (block.config as IfConfig).condition || "…";
     return `${comment} if ${condition}: (the blocks below run only when this holds)`;
+  }
+  if (block.type === "expect") {
+    const config = block.config as ExpectConfig;
+    if (config.kind === "condition") {
+      return `${comment} expect ${config.condition || "…"}  (fails the run when false)`;
+    }
+    if (config.kind === "event") {
+      return `${comment} expect event ${config.eventName || "…"}  (fails the run if missing)`;
+    }
+    if (config.kind === "revert") {
+      const reason = config.reason ? ` containing "${config.reason}"` : "";
+      return `${comment} expect ${config.functionName || "…"} to revert${reason}`;
+    }
+    return `${comment} expect (unconfigured)`;
   }
   if (block.type === "recipe") {
     return `${comment} recipe cell — reruns a saved recipe (see Recipes in the sidebar)`;

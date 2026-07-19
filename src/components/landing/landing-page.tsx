@@ -397,16 +397,12 @@ export function LandingPage({
                   body: "Snapshot / revert / time-travel buttons on anvil forks, and app-managed fork processes.",
                 },
                 {
-                  title: "Headless CI runner",
-                  body: "chainstitch run notebook.json — executes a notebook file against a fresh fork and fails the build when a flow breaks.",
-                },
-                {
-                  title: "Deploy & assertion blocks",
-                  body: "Deploy from Foundry artifacts as a cell; expect blocks turn notebooks into integration tests.",
+                  title: "Deploy blocks",
+                  body: "Deploy from Foundry artifacts as a cell; the new address becomes a variable and an address-book entry.",
                 },
                 {
                   title: "MCP execution tools",
-                  body: "Once the headless runner lands: agents can run a notebook and get receipts back over MCP, not just author definitions.",
+                  body: "Agents can run a notebook and get receipts back over MCP, not just author definitions.",
                 },
                 {
                   title: "Safe Transaction Builder export",
