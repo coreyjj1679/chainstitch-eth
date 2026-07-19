@@ -266,7 +266,7 @@ sqlite
   .run("local-membership", DEFAULT_WORKSPACE_ID, LOCAL_USER_ID, now);
 
 export const db = drizzle(sqlite, { schema });
-export { schema };
+export { schema, sqlite };
 
 // First-boot example: seed one runnable tour project (public mainnet RPC)
 // into an empty instance, so there is something to open before anyone
@@ -294,5 +294,13 @@ if (process.env.CHAINSTITCH_SKIP_EXAMPLE_SEED !== "1") {
     void import("@/server/dal/tutorial")
       .then((m) => m.seedExampleProject())
       .catch((error) => console.error("Example project seeding failed:", error));
+  } else {
+    // Existing DBs: refresh the Example project's Welcome notebook when the
+    // tutorial content version bumps (VPS image upgrades, local rebuilds).
+    void import("@/server/dal/tutorial")
+      .then((m) => m.syncTutorialContentIfNeeded())
+      .catch((error) =>
+        console.error("Tutorial content sync failed:", error),
+      );
   }
 }

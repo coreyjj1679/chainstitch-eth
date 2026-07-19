@@ -1,13 +1,16 @@
 import "server-only";
-import { db, schema, DEFAULT_WORKSPACE_ID } from "@/db";
+import { and, eq } from "drizzle-orm";
+import { db, schema, DEFAULT_WORKSPACE_ID, sqlite } from "@/db";
 
 /**
  * Seeds the "Welcome to Chainstitch" tutorial into a fresh project: a small
  * chain-agnostic recipe plus a notebook that tours every feature. Everything
- * runnable is plain JSON-RPC, so it works against any endpoint with no
- * contracts, no wallet and no setup.
+ * runnable is plain JSON-RPC (plus one Expect condition), so it works against
+ * any endpoint with no contracts, no wallet and no setup.
  *
  * Called from `createProject` after authorization — not an API entry point.
+ * Existing Example projects are refreshed on boot when
+ * {@link TUTORIAL_CONTENT_VERSION} advances (see {@link syncTutorialContentIfNeeded}).
  */
 
 interface SeedBlock {
@@ -18,6 +21,13 @@ interface SeedBlock {
   parentId?: string | null;
 }
 
+/** Bump when Welcome notebook / example recipe content changes. */
+export const TUTORIAL_CONTENT_VERSION = "3";
+
+const EXAMPLE_PROJECT_NAME = "Example — Ethereum mainnet";
+const WELCOME_TITLE = "Welcome to Chainstitch";
+const RECIPE_NAME = "Chain health check";
+
 const lines = (...text: string[]) => text.join("\n");
 
 const INTRO = lines(
@@ -27,8 +37,12 @@ const INTRO = lines(
   "project's RPC endpoint — no contracts, no wallet, nothing to configure.",
   "",
   "Select a cell and press **Shift+Enter** to run it, or hit **Run all** in the",
-  "toolbar and read along. Everything here is editable, and the whole notebook",
-  "can be deleted from the sidebar once you're done with it.",
+  "toolbar and read along. When you're done, open the toolbar's **handoff**",
+  "panel (tree icon) — Frontend / Backend tabs summarize the flow the same way",
+  "teammates (and MCP `get_notebook_handoff`) will see it.",
+  "",
+  "Everything here is editable, and the whole notebook can be deleted from the",
+  "sidebar once you're done with it.",
 );
 
 const VARIABLES = lines(
@@ -80,8 +94,21 @@ const CONDITIONS = lines(
   "*run when* field next to *save as*.",
 );
 
+const EXPECT = lines(
+  "## 5 · Expect (assertions that fail the run)",
+  "",
+  "Unlike a Condition group (which *skips* children), an **Expect** cell",
+  "**fails Run all** when unmet — the same check CI uses via",
+  "`npx chainstitch run notebook.json`. Kinds: condition, required event on",
+  "the last write, or expected revert.",
+  "",
+  "The cell below asserts the head block is positive. Add **Expect → Event**",
+  "cells in real flows so backends (and the handoff brief) see which logs to",
+  "index.",
+);
+
 const CONTRACTS = lines(
-  "## 5 · Contracts: reads, writes & events",
+  "## 6 · Contracts: reads, writes, events & units",
   "",
   "Open the **Contracts** tab and paste a deployed address — the verified ABI",
   "is fetched for you (Sourcify/Blockscout out of the box, Etherscan with a",
@@ -90,19 +117,22 @@ const CONTRACTS = lines(
   "fill in addresses by hand.",
   "",
   "**Read** and **Write** cells then give you typed forms generated from the",
-  "ABI. Writes always **simulate first**, so revert reasons surface *before*",
-  "the wallet prompt. **Events** cells query a contract's logs and decode",
-  "them — the result is a variable like any other. Wrap cells in a",
-  "**Simulation** group to run them as any caller via `eth_call` — and on",
-  "anvil forks the group can *impersonate* that caller for real writes, no",
-  "private key needed.",
+  "ABI. Amount-like args are **unit-aware** when the contract exposes",
+  "`decimals()` — type `1.5` and the field stores raw units; toggle the badge",
+  "for raw / `{{variable}}`. Payable `value` accepts ETH↔wei. Address args",
+  "autocomplete from the address book and resolve ENS on blur. Writes always",
+  "**simulate first**, so revert reasons surface *before* the wallet prompt.",
+  "**Events** cells query a contract's logs and decode them — the result is a",
+  "variable like any other. Wrap cells in a **Simulation** group to run them",
+  "as any caller via `eth_call` — and on anvil forks the group can",
+  "*impersonate* that caller for real writes, no private key needed.",
   "",
   "The read cell below is waiting for its contract — add one in the Contracts",
   "tab, then pick it here.",
 );
 
 const RECIPES = lines(
-  "## 6 · Recipes",
+  "## 7 · Recipes",
   "",
   "Save any selection of cells as a **recipe** and reuse it across notebooks:",
   "the bookmark icon in the toolbar (or on any cell) saves one, and the",
@@ -118,8 +148,12 @@ const RECIPES = lines(
 );
 
 const OUTRO = lines(
-  "## 7 · The rest of the tour",
+  "## 8 · The rest of the tour",
   "",
+  "- **Integration handoff** — toolbar tree icon: call sequence for frontend,",
+  "  expected events for backend, `{{variable}}` wiring. Agents get the same",
+  "  JSON via MCP `get_notebook_handoff` (pair with `get_notebook_code` for",
+  "  wagmi/viem).",
   "- **Code generation** — the `</>` button on any cell emits wagmi, viem,",
   "  web3.py, alloy or Solidity snippets; the toolbar's code toggle shows the",
   "  whole notebook as runnable source, and the download button exports a JSON",
@@ -131,45 +165,21 @@ const OUTRO = lines(
   "  reopened from the sidebar, outputs included.",
   "- **Simulate all** — dry-run the entire notebook as any address via",
   "  `eth_call`; nothing is sent on-chain.",
+  "- **CI** — export the notebook and run `npx chainstitch run …` in CI;",
+  "  Expect cells make the exit code meaningful.",
+  "- **Team / agents** — project's **Share** button or **Settings** invites;",
+  "  team mode agents use **Settings → Agent tokens** (`Bearer cst_…`) for MCP.",
   "- **Shortcuts** — `B` adds a block, `M` adds text, `Shift+Enter` runs the",
   "  selected cell, `Cmd+Enter` runs while editing; double-click any cell to",
   "  edit it.",
   "",
   "That's the tour. Delete this notebook (or this whole example project) from",
-  "the sidebar whenever you're ready. To bring the team in, use the project's",
-  "**Share** button or invite wallets from **Settings** — and see **/docs**",
-  "for the full guide, self-hosting included.",
+  "the sidebar whenever you're ready. See **/docs** for the full guide,",
+  "self-hosting included.",
 );
 
-/**
- * First-boot example: a ready-made project against a public mainnet RPC, so
- * a fresh instance has a runnable tour before anyone creates anything. The
- * tutorial content is chain-agnostic; mainnet just makes every cell return
- * something interesting with zero setup. Owners can delete it like any
- * project. Called once per database from the boot bootstrap (see db/index).
- */
-export async function seedExampleProject(): Promise<void> {
-  const projectId = crypto.randomUUID();
-  await db.insert(schema.projects).values({
-    id: projectId,
-    workspaceId: DEFAULT_WORKSPACE_ID,
-    name: "Example — Ethereum mainnet",
-    description:
-      "A runnable tour against a public RPC — open the Welcome notebook and hit Run all. Safe to delete.",
-    chainId: 1,
-    rpcUrl: "https://ethereum-rpc.publicnode.com",
-    explorerUrl: "https://etherscan.io",
-    createdAt: new Date(),
-  });
-  await seedTutorialContent(projectId);
-}
-
-export async function seedTutorialContent(projectId: string): Promise<void> {
-  const now = new Date();
-
-  // A tiny chain-agnostic recipe the tutorial's Recipe cell links to.
-  const recipeId = crypto.randomUUID();
-  const recipeBlocks: SeedBlock[] = [
+function buildRecipeBlocks(): SeedBlock[] {
+  return [
     {
       id: crypto.randomUUID(),
       type: "rpc",
@@ -189,40 +199,19 @@ export async function seedTutorialContent(projectId: string): Promise<void> {
       outputVariable: "gasPrice",
     },
   ];
-  await db.insert(schema.recipes).values({
-    id: recipeId,
-    projectId,
-    name: "Chain health check",
-    description: "Three RPC reads that work on any chain — id, head, gas price",
-    blocks: JSON.stringify(
-      recipeBlocks.map((b) => ({
-        ...b,
-        outputVariable: b.outputVariable ?? null,
-        parentId: null,
-        runWhen: null,
-      })),
-    ),
-    createdAt: now,
-    updatedAt: now,
-  });
+}
 
-  const notebookId = crypto.randomUUID();
-  await db.insert(schema.notebooks).values({
-    id: notebookId,
-    projectId,
-    title: "Welcome to Chainstitch",
-    description: "A hands-on tour — run it top to bottom, edit anything, delete when done",
-    createdAt: now,
-    updatedAt: now,
-  });
-
+function buildWelcomeBlocks(recipeId: string): SeedBlock[] {
   const ifBlockId = crypto.randomUUID();
-  const blocks: SeedBlock[] = [
+  return [
     { type: "markdown", config: { text: INTRO } },
     { type: "markdown", config: { text: VARIABLES } },
     {
       type: "variable",
-      config: { name: "account", value: "0x0000000000000000000000000000000000000000" },
+      config: {
+        name: "account",
+        value: "0x0000000000000000000000000000000000000000",
+      },
     },
     {
       type: "variable",
@@ -252,22 +241,206 @@ export async function seedTutorialContent(projectId: string): Promise<void> {
       outputVariable: "gasNow",
       parentId: ifBlockId,
     },
+    { type: "markdown", config: { text: EXPECT } },
+    {
+      type: "expect",
+      config: { kind: "condition", condition: "{{head}} > 0" },
+    },
     { type: "markdown", config: { text: CONTRACTS } },
     { type: "read", config: { contractId: "", functionName: "", args: [] } },
     { type: "markdown", config: { text: RECIPES } },
     { type: "recipe", config: { recipeId } },
     { type: "markdown", config: { text: OUTRO } },
   ];
-  await db.insert(schema.blocks).values(
-    blocks.map((b, index) => ({
-      id: b.id ?? crypto.randomUUID(),
-      notebookId,
-      order: index,
-      type: b.type,
-      config: JSON.stringify(b.config),
-      outputVariable: b.outputVariable ?? null,
-      parentId: b.parentId ?? null,
-      runWhen: null,
-    })),
+}
+
+function insertRecipe(
+  projectId: string,
+  recipeId: string,
+  recipeBlocks: SeedBlock[],
+  now: Date,
+): void {
+  db.insert(schema.recipes)
+    .values({
+      id: recipeId,
+      projectId,
+      name: RECIPE_NAME,
+      description:
+        "Three RPC reads that work on any chain — id, head, gas price",
+      blocks: JSON.stringify(
+        recipeBlocks.map((b) => ({
+          ...b,
+          outputVariable: b.outputVariable ?? null,
+          parentId: null,
+          runWhen: null,
+        })),
+      ),
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+function insertWelcomeNotebook(
+  projectId: string,
+  notebookId: string,
+  blocks: SeedBlock[],
+  now: Date,
+): void {
+  db.insert(schema.notebooks)
+    .values({
+      id: notebookId,
+      projectId,
+      title: WELCOME_TITLE,
+      description:
+        "A hands-on tour — run it top to bottom, edit anything, delete when done",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  db.insert(schema.blocks)
+    .values(
+      blocks.map((b, index) => ({
+        id: b.id ?? crypto.randomUUID(),
+        notebookId,
+        order: index,
+        type: b.type,
+        config: JSON.stringify(b.config),
+        outputVariable: b.outputVariable ?? null,
+        parentId: b.parentId ?? null,
+        runWhen: null,
+      })),
+    )
+    .run();
+}
+
+/**
+ * First-boot example: a ready-made project against a public mainnet RPC, so
+ * a fresh instance has a runnable tour before anyone creates anything. The
+ * tutorial content is chain-agnostic; mainnet just makes every cell return
+ * something interesting with zero setup. Owners can delete it like any
+ * project. Called once per database from the boot bootstrap (see db/index).
+ */
+export async function seedExampleProject(): Promise<void> {
+  const projectId = crypto.randomUUID();
+  await db.insert(schema.projects).values({
+    id: projectId,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    name: EXAMPLE_PROJECT_NAME,
+    description:
+      "A runnable tour against a public RPC — open the Welcome notebook and hit Run all. Safe to delete.",
+    chainId: 1,
+    rpcUrl: "https://ethereum-rpc.publicnode.com",
+    explorerUrl: "https://etherscan.io",
+    createdAt: new Date(),
+  });
+  await seedTutorialContent(projectId);
+  setTutorialContentVersion(TUTORIAL_CONTENT_VERSION);
+}
+
+export async function seedTutorialContent(projectId: string): Promise<void> {
+  const now = new Date();
+  const recipeId = crypto.randomUUID();
+  const recipeBlocks = buildRecipeBlocks();
+  insertRecipe(projectId, recipeId, recipeBlocks, now);
+
+  const notebookId = crypto.randomUUID();
+  insertWelcomeNotebook(
+    projectId,
+    notebookId,
+    buildWelcomeBlocks(recipeId),
+    now,
+  );
+}
+
+function getTutorialContentVersion(): string | null {
+  const row = sqlite
+    .prepare("SELECT value FROM app_meta WHERE key = 'tutorial_content_version'")
+    .get() as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+function setTutorialContentVersion(version: string): void {
+  sqlite
+    .prepare(
+      "INSERT INTO app_meta (key, value) VALUES ('tutorial_content_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .run(version);
+}
+
+/**
+ * Replace the Example project's Welcome notebook + health-check recipe with
+ * the current tutorial content when {@link TUTORIAL_CONTENT_VERSION} advances.
+ * No-op if the Example project was deleted, or if the version already matches.
+ * Safe to call on every boot (VPS image upgrades included).
+ */
+export async function syncTutorialContentIfNeeded(): Promise<void> {
+  if (getTutorialContentVersion() === TUTORIAL_CONTENT_VERSION) return;
+
+  const example = (
+    await db
+      .select()
+      .from(schema.projects)
+      .where(
+        and(
+          eq(schema.projects.workspaceId, DEFAULT_WORKSPACE_ID),
+          eq(schema.projects.name, EXAMPLE_PROJECT_NAME),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (!example) {
+    // Example gone — still stamp the version so we don't keep scanning.
+    setTutorialContentVersion(TUTORIAL_CONTENT_VERSION);
+    return;
+  }
+
+  const now = new Date();
+  const recipeId = crypto.randomUUID();
+  const recipeBlocks = buildRecipeBlocks();
+
+  // Drop prior Welcome + health-check recipe (cascade removes blocks).
+  const oldWelcome = (
+    await db
+      .select()
+      .from(schema.notebooks)
+      .where(
+        and(
+          eq(schema.notebooks.projectId, example.id),
+          eq(schema.notebooks.title, WELCOME_TITLE),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (oldWelcome) {
+    await db.delete(schema.notebooks).where(eq(schema.notebooks.id, oldWelcome.id));
+  }
+  const oldRecipe = (
+    await db
+      .select()
+      .from(schema.recipes)
+      .where(
+        and(
+          eq(schema.recipes.projectId, example.id),
+          eq(schema.recipes.name, RECIPE_NAME),
+        ),
+      )
+      .limit(1)
+  )[0];
+  if (oldRecipe) {
+    await db.delete(schema.recipes).where(eq(schema.recipes.id, oldRecipe.id));
+  }
+
+  insertRecipe(example.id, recipeId, recipeBlocks, now);
+  insertWelcomeNotebook(
+    example.id,
+    crypto.randomUUID(),
+    buildWelcomeBlocks(recipeId),
+    now,
+  );
+  setTutorialContentVersion(TUTORIAL_CONTENT_VERSION);
+  console.info(
+    `Tutorial content synced to v${TUTORIAL_CONTENT_VERSION} on ${EXAMPLE_PROJECT_NAME}`,
   );
 }
