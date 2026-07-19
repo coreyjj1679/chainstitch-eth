@@ -37,10 +37,56 @@ async function linkGrants(headers: Headers): Promise<Record<string, WorkspaceRol
   return grants;
 }
 
+/** Membership + project grants for a real user id, optionally merged with link grants. */
+async function contextForUser(
+  userId: string,
+  shared: Record<string, WorkspaceRole>,
+): Promise<AuthContext> {
+  const [membership] = await db
+    .select({ role: schema.workspaceMembers.role })
+    .from(schema.workspaceMembers)
+    .where(
+      and(
+        eq(schema.workspaceMembers.workspaceId, DEFAULT_WORKSPACE_ID),
+        eq(schema.workspaceMembers.userId, userId),
+      ),
+    );
+  const grants = await db
+    .select({
+      projectId: schema.projectMembers.projectId,
+      role: schema.projectMembers.role,
+    })
+    .from(schema.projectMembers)
+    .where(eq(schema.projectMembers.userId, userId));
+  const projectRoles: Record<string, WorkspaceRole> = {};
+  for (const grant of grants) projectRoles[grant.projectId] = grant.role;
+  // A signed-in user who opened a share link gets the link's role too
+  // (the higher role wins, links never lower existing access).
+  for (const [projectId, role] of Object.entries(shared)) {
+    const current = projectRoles[projectId];
+    if (!current || ROLE_RANK[role] > ROLE_RANK[current]) {
+      projectRoles[projectId] = role;
+    }
+  }
+
+  return {
+    userId,
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    role: membership?.role ?? null,
+    projectRoles,
+  };
+}
+
+function parseBearer(authorization: string | null): string | null {
+  if (!authorization) return null;
+  const match = /^Bearer\s+(\S+)$/i.exec(authorization.trim());
+  return match?.[1] ?? null;
+}
+
 /**
  * Resolve the caller for a request. Local mode: the implicit owner, no auth.
- * Team mode: better-auth session (or an "anyone with the link" cookie — 401
- * when neither is present) + workspace membership + per-project grants.
+ * Team mode: API Bearer token, better-auth session, or an "anyone with the
+ * link" cookie — 401 when none is present. Authorization is enforced in the DAL.
  */
 export async function getAuthContext(headers: Headers): Promise<AuthContext> {
   if (appMode() === "local") {
@@ -50,6 +96,18 @@ export async function getAuthContext(headers: Headers): Promise<AuthContext> {
       role: "owner",
       projectRoles: {},
     };
+  }
+
+  // Headless agents (MCP) authenticate with a personal API token — no SIWE.
+  // Checked before the session cookie so a mis-set Bearer fails closed rather
+  // than silently falling through to a browser session on the same machine.
+  const bearer = parseBearer(headers.get("authorization"));
+  if (bearer) {
+    // Dynamic import avoids a cycle: api-tokens DAL imports AuthContext helpers.
+    const { resolveApiTokenUserId } = await import("@/server/dal/api-tokens");
+    const userId = await resolveApiTokenUserId(bearer);
+    if (!userId) throw unauthorized();
+    return contextForUser(userId, {});
   }
 
   const session = await auth.api.getSession({ headers });
@@ -67,39 +125,7 @@ export async function getAuthContext(headers: Headers): Promise<AuthContext> {
     };
   }
 
-  const [membership] = await db
-    .select({ role: schema.workspaceMembers.role })
-    .from(schema.workspaceMembers)
-    .where(
-      and(
-        eq(schema.workspaceMembers.workspaceId, DEFAULT_WORKSPACE_ID),
-        eq(schema.workspaceMembers.userId, session.user.id),
-      ),
-    );
-  const grants = await db
-    .select({
-      projectId: schema.projectMembers.projectId,
-      role: schema.projectMembers.role,
-    })
-    .from(schema.projectMembers)
-    .where(eq(schema.projectMembers.userId, session.user.id));
-  const projectRoles: Record<string, WorkspaceRole> = {};
-  for (const grant of grants) projectRoles[grant.projectId] = grant.role;
-  // A signed-in user who opened a share link gets the link's role too
-  // (the higher role wins, links never lower existing access).
-  for (const [projectId, role] of Object.entries(shared)) {
-    const current = projectRoles[projectId];
-    if (!current || ROLE_RANK[role] > ROLE_RANK[current]) {
-      projectRoles[projectId] = role;
-    }
-  }
-
-  return {
-    userId: session.user.id,
-    workspaceId: DEFAULT_WORKSPACE_ID,
-    role: membership?.role ?? null,
-    projectRoles,
-  };
+  return contextForUser(session.user.id, shared);
 }
 
 /** True when the caller can see anything at all (member or ≥1 project grant). */

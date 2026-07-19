@@ -214,6 +214,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS project_share_links_project_uq
   ON project_share_links(project_id);
 CREATE UNIQUE INDEX IF NOT EXISTS project_share_links_token_uq
   ON project_share_links(token);
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES user(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  token_prefix TEXT NOT NULL,
+  token_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  last_used_at INTEGER
+);
+CREATE UNIQUE INDEX IF NOT EXISTS api_tokens_hash_uq ON api_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS api_tokens_user_id_idx ON api_tokens(user_id);
 `);
 
 // Lightweight migrations for databases created before these columns existed.

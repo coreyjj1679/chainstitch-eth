@@ -177,10 +177,30 @@ agent at it and the integration works in both directions:
   team already tested drops straight into an app instead of being
   re-derived from an ABI.
 
+**Local mode** (no auth — the instance is yours):
+
 ```json
 {
   "mcpServers": {
     "chainstitch": { "url": "http://localhost:3000/api/mcp" }
+  }
+}
+```
+
+**Team mode** needs a personal API token (SIWE can't be done headlessly).
+Create one under **Settings → Agent tokens**, then pass it as a Bearer
+header. The token inherits *your* workspace and project roles; revoke it
+anytime.
+
+```json
+{
+  "mcpServers": {
+    "chainstitch": {
+      "url": "https://your-instance.example/api/mcp",
+      "headers": {
+        "Authorization": "Bearer cst_…"
+      }
+    }
   }
 }
 ```
@@ -194,8 +214,7 @@ so notebooks can also live in your contracts repo and travel through PRs.
 The format is self-documenting: agents call `get_notebook_format`, humans
 read the in-app docs (`/docs`, "AI agents & MCP"). Tools are
 read/write on definitions only — execution stays in your browser, writes
-stay signed by your wallet. MCP currently runs on local-mode instances
-(team-mode API tokens are on the roadmap).
+stay signed by your wallet.
 
 ### Version history & saved runs
 

@@ -87,6 +87,33 @@ export const walletAddress = sqliteTable(
   ],
 );
 
+/**
+ * Personal API tokens for headless agents (MCP) in team mode. The plaintext
+ * token is shown once at creation; only a SHA-256 hash is stored. A token
+ * inherits its owner's workspace + project roles — no separate scopes.
+ */
+export const apiTokens = sqliteTable(
+  "api_tokens",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Short label chosen by the user ("Cursor laptop", …). */
+    name: text("name").notNull(),
+    /** Leading chars of the token for list display (`cst_a1b2c3d4`). */
+    tokenPrefix: text("token_prefix").notNull(),
+    /** SHA-256 hex digest of the full `cst_…` token. */
+    tokenHash: text("token_hash").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("api_tokens_hash_uq").on(t.tokenHash),
+    index("api_tokens_user_id_idx").on(t.userId),
+  ],
+);
+
 // ---------------------------------------------------------------------------
 // Workspaces & sharing.
 // v1 runs a single shared workspace per instance (id "default"); the schema

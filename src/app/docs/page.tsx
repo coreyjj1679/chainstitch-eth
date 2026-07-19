@@ -309,13 +309,35 @@ export default function DocsPage() {
               <Code>/api/mcp</Code>: connect Cursor, Claude Code or any
               MCP-capable coding agent and it can read your address book,
               author notebooks, and pull any notebook back as generated
-              source. No extra process, no API key in local mode — it&apos;s
-              the app you already have running.
+              source. No extra process — it&apos;s the app you already have
+              running.
             </p>
-            <Pre>{`// .cursor/mcp.json (or your agent's equivalent)
+            <p>
+              <strong>Local mode</strong> needs no credentials (the instance
+              is already yours). Point the agent at localhost:
+            </p>
+            <Pre>{`// .cursor/mcp.json — local mode
 {
   "mcpServers": {
     "chainstitch": { "url": "http://localhost:3000/api/mcp" }
+  }
+}`}</Pre>
+            <p>
+              <strong>Team mode</strong> uses a personal{" "}
+              <strong>API token</strong> (SIWE can&apos;t be done headlessly).
+              Create one under <em>Settings → Agent tokens</em>, then pass it
+              as a Bearer header. The token inherits{" "}
+              <em>your</em> workspace and project roles — revoke it anytime.
+            </p>
+            <Pre>{`// .cursor/mcp.json — team mode
+{
+  "mcpServers": {
+    "chainstitch": {
+      "url": "https://your-instance.example/api/mcp",
+      "headers": {
+        "Authorization": "Bearer cst_…"
+      }
+    }
   }
 }`}</Pre>
             <DocsTable
@@ -350,10 +372,8 @@ export default function DocsPage() {
             </p>
             <p>
               Agents create and read <em>definitions</em>; execution stays in
-              your browser and writes stay signed by your wallet. MCP works
-              on local-mode instances today — team mode needs API tokens
-              (SIWE can&apos;t be done headlessly), which are on the roadmap
-              along with execution tools riding the headless runner.
+              your browser and writes stay signed by your wallet. Execution
+              tools (agent hits Run) ride the headless runner on the roadmap.
             </p>
           </Section>
 

@@ -1,6 +1,8 @@
 import type {
   AbiLookupResult,
+  ApiTokenInfo,
   ContractEntry,
+  CreatedApiToken,
   InviteInfo,
   Me,
   MemberInfo,
@@ -39,6 +41,16 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   me: () => request<Me>("/api/me"),
+  tokens: {
+    list: () => request<ApiTokenInfo[]>("/api/me/tokens"),
+    create: (name: string) =>
+      request<CreatedApiToken>("/api/me/tokens", {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      }),
+    revoke: (id: string) =>
+      request(`/api/me/tokens/${id}`, { method: "DELETE" }),
+  },
   workspace: {
     members: () => request<MemberInfo[]>("/api/workspace/members"),
     updateMemberRole: (id: string, role: WorkspaceRole) =>

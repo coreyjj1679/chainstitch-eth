@@ -358,8 +358,8 @@ const TOOLS: ToolDef[] = [
 
 // --- Request handling -----------------------------------------------------------
 
-const TEAM_MODE_MESSAGE =
-  "This Chainstitch instance runs in team mode, which the MCP server does not support yet: sign-in is SIWE (a browser wallet signature), which a headless agent cannot perform. API tokens for agents are on the roadmap. Point the agent at a local-mode instance instead — `npm run dev` locally is enough.";
+const TEAM_MODE_AUTH_HINT =
+  "This Chainstitch instance runs in team mode. Authenticate with a personal API token: set the Authorization header to `Bearer cst_…` (create one under Settings → Agent tokens). The token inherits your workspace and project roles.";
 
 function toolResult(id: JsonRpcId, payload: ToolPayload) {
   const text = "text" in payload ? payload.text : JSON.stringify(payload.json, null, 2);
@@ -379,8 +379,12 @@ async function handleToolCall(headers: Headers, id: JsonRpcId, params: unknown) 
   let ctx: AuthContext;
   try {
     ctx = await getAuthContext(headers);
-  } catch {
-    return toolError(id, TEAM_MODE_MESSAGE);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401 && appMode() === "team") {
+      return toolError(id, TEAM_MODE_AUTH_HINT);
+    }
+    if (error instanceof ApiError) return toolError(id, error.message);
+    return toolError(id, "Authentication failed");
   }
 
   try {
@@ -430,7 +434,7 @@ export async function handleMcpRequest(request: Request): Promise<Response> {
         ? requested
         : LATEST_PROTOCOL_VERSION;
       const teamNote =
-        appMode() === "team" ? `\n\nIMPORTANT: ${TEAM_MODE_MESSAGE}` : "";
+        appMode() === "team" ? `\n\nIMPORTANT: ${TEAM_MODE_AUTH_HINT}` : "";
       return Response.json(
         rpcResult(id, {
           protocolVersion,

@@ -34,6 +34,7 @@ npm run dev
 | `src/lib/codegen.ts` | wagmi/viem snippet generation |
 | `src/lib/notebook-file.ts` | Portable notebook manifest (`chainstitch-notebook` v1): build, validate, format doc |
 | `src/server/mcp.ts` | MCP server (`/api/mcp`) — agent tools as thin DAL wrappers |
+| `src/server/dal/api-tokens.ts` | Personal API tokens for team-mode MCP (Bearer auth) |
 | `src/lib/variables.ts` | `{{variable}}` interpolation |
 | `src/components/notebook/` | The notebook editor UI (blocks, results, code panels) |
 | `src/stores/notebook-store.ts` | Editor state (Zustand), including read-only gating |

@@ -31,11 +31,13 @@ Reports in these areas are especially valuable:
   views. Every data-access function is workspace-scoped by design
   (`src/server/dal/`); `npm run test:authz` encodes the expected rules.
 - **Authentication (team mode)** — SIWE verification (nonce reuse, domain
-  binding, signature checks), session handling, the invite-only sign-in
-  policy, and role enforcement (viewer / editor / owner).
+  binding, signature checks), session handling, personal API tokens for
+  headless agents (hashed at rest, Bearer auth, revoke-anytime), the
+  invite-only sign-in policy, and role enforcement (viewer / editor / owner).
 - **Secret exposure** — RPC URLs frequently embed third-party API keys.
   Any way to read a project's RPC URL without workspace membership, or to
-  leak it into logs or error messages, is a vulnerability.
+  leak it into logs or error messages, is a vulnerability. API token
+  plaintext must never be logged or re-shown after creation.
 - **Server-side request forgery / injection** in API routes.
 
 ## Explicitly out of scope (by design)
@@ -59,6 +61,7 @@ Private keys never touch the server. Contract reads, writes, and RPC calls
 execute in the browser against the project's configured RPC endpoint; the
 server stores notebook *definitions* (projects, ABIs, blocks) and, in team
 mode, auth tables — never execution results. Sessions are httpOnly
-cookies; SIWE messages are single-use-nonce and domain-bound. All
-authorization is enforced server-side in the data access layer, not in the
-UI.
+cookies; SIWE messages are single-use-nonce and domain-bound. Personal API
+tokens (team mode, for MCP) are SHA-256-hashed at rest and inherit the
+owner's roles. All authorization is enforced server-side in the data
+access layer, not in the UI.

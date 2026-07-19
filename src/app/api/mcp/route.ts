@@ -2,7 +2,8 @@ import { handleMcpRequest } from "@/server/mcp";
 
 /**
  * The MCP endpoint (Model Context Protocol, Streamable HTTP transport in
- * stateless JSON mode). Point a coding agent at http://localhost:3000/api/mcp.
+ * stateless JSON mode). Local mode: http://localhost:3000/api/mcp (no auth).
+ * Team mode: same path on the instance URL, with `Authorization: Bearer cst_…`.
  */
 export async function POST(request: Request) {
   return handleMcpRequest(request);

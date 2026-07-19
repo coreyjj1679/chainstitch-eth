@@ -316,10 +316,20 @@ export function LandingPage({
           <div className="mx-auto grid w-full max-w-6xl items-center gap-10 px-6 py-14 lg:grid-cols-2">
             <div className="order-last lg:order-first">
               <pre className="overflow-x-auto rounded-xl border bg-background px-5 py-4 font-mono text-xs leading-relaxed text-foreground/90">
-                {`// .cursor/mcp.json — that's the whole setup
+                {`// .cursor/mcp.json — local mode
 {
   "mcpServers": {
     "chainstitch": { "url": "http://localhost:3000/api/mcp" }
+  }
+}
+
+// team mode — Settings → Agent tokens
+{
+  "mcpServers": {
+    "chainstitch": {
+      "url": "https://your-instance/api/mcp",
+      "headers": { "Authorization": "Bearer cst_…" }
+    }
   }
 }
 
@@ -351,10 +361,12 @@ export function LandingPage({
                 already sits in, assembles the blocks, adds missing ABIs, and
                 hands back a URL to run. Ask for the reverse and any tested
                 notebook comes out as wagmi, viem, Python or Rust source.
+                Local mode needs no credentials; team mode uses a personal
+                API token from Settings.
               </p>
               <ul className="grid gap-2 text-sm text-muted-foreground">
                 {[
-                  "No extra process, no API key — it's the app you already run",
+                  "No extra process — local needs no key; team mode uses a revocable Bearer token",
                   "Agents write definitions; execution stays in your browser, writes stay signed by your wallet",
                   "Notebooks travel as files too: versioned JSON import/export for PR review",
                 ].map((line) => (
@@ -393,8 +405,8 @@ export function LandingPage({
                   body: "Deploy from Foundry artifacts as a cell; expect blocks turn notebooks into integration tests.",
                 },
                 {
-                  title: "MCP for team instances",
-                  body: "API tokens so agents can drive shared team instances too — and execution tools once the headless runner lands.",
+                  title: "MCP execution tools",
+                  body: "Once the headless runner lands: agents can run a notebook and get receipts back over MCP, not just author definitions.",
                 },
                 {
                   title: "Safe Transaction Builder export",

@@ -393,6 +393,64 @@ async function main() {
       (await owner("DELETE", `/api/projects/${projectId}/share-link`)).status === 200,
       "owner turns link sharing off",
     );
+
+    // API tokens for MCP (team mode)
+    const tokenCreate = await owner("POST", "/api/me/tokens", { name: "e2e agent" });
+    ok(tokenCreate.status === 200, "owner mints an API token");
+    const agentToken = (tokenCreate.json as { token: string; id: string }).token;
+    const tokenId = (tokenCreate.json as { id: string }).id;
+    ok(agentToken.startsWith("cst_"), "minted token uses cst_ prefix");
+    const listed = await owner("GET", "/api/me/tokens");
+    ok(
+      listed.status === 200 &&
+        Array.isArray(listed.json) &&
+        !(listed.json as Array<{ token?: string }>).some((t) => t.token),
+      "token list never re-shows the secret",
+    );
+    const mcpRes = await fetch(`${BASE}/api/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${agentToken}`,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "list_projects", arguments: {} },
+      }),
+    });
+    const mcpBody = (await mcpRes.json()) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+    };
+    ok(mcpRes.status === 200 && !mcpBody.result?.isError, "MCP tools/call succeeds with Bearer token");
+    const mcpText = mcpBody.result?.content?.[0]?.text ?? "";
+    ok(mcpText.includes("E2E") || mcpText.includes(projectId), "MCP list_projects sees the owner's project");
+    const badMcp = await fetch(`${BASE}/api/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer cst_not_a_real_token",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "list_projects", arguments: {} },
+      }),
+    });
+    const badBody = (await badMcp.json()) as {
+      result?: { isError?: boolean; content?: Array<{ text?: string }> };
+    };
+    ok(
+      badBody.result?.isError === true &&
+        (badBody.result.content?.[0]?.text ?? "").toLowerCase().includes("token"),
+      "MCP without a valid token explains how to authenticate",
+    );
+    ok(
+      (await owner("DELETE", `/api/me/tokens/${tokenId}`)).status === 200,
+      "owner revokes the API token",
+    );
   } finally {
     // Wait for the server to actually exit before deleting its dirs.
     const exited = new Promise<void>((resolve) => {

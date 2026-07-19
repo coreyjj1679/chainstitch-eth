@@ -233,6 +233,19 @@ export interface InviteInfo {
   createdAt: number;
 }
 
+/** Personal API token for MCP / headless agents (team mode). Secret shown once. */
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  createdAt: number;
+  lastUsedAt: number | null;
+}
+
+export interface CreatedApiToken extends ApiTokenInfo {
+  token: string;
+}
+
 /** "Anyone with the link" state for one project (owners only). */
 export interface ShareLink {
   token: string;

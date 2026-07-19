@@ -939,6 +939,62 @@ async function main() {
     "disabled links stop resolving",
   );
 
+  // --- API tokens (team-mode MCP) --------------------------------------------
+  const apiTokens = await import("../src/server/dal/api-tokens");
+  const { getAuthContext } = await import("../src/server/auth-context");
+
+  const minted = await apiTokens.createApiToken(owner, "Cursor");
+  ok(
+    minted.token.startsWith("cst_") && minted.tokenPrefix.startsWith("cst_"),
+    "minted token uses the cst_ prefix",
+  );
+  ok(
+    (await apiTokens.listApiTokens(owner)).some((t) => t.id === minted.id),
+    "owner lists their own token (prefix only)",
+  );
+  ok(
+    !(await apiTokens.listApiTokens(owner)).some((t) => "token" in t && (t as { token?: string }).token),
+    "list never includes the plaintext secret",
+  );
+  await expectStatus(
+    apiTokens.createApiToken(nonMember, "nope"),
+    403,
+    "non-members cannot mint tokens",
+  );
+  // carol is viewer: can mint (has access)
+  const carolToken = await apiTokens.createApiToken(viewer, "Viewer agent");
+  ok(carolToken.token.startsWith("cst_"), "viewers with access can mint tokens");
+
+  const resolved = await apiTokens.resolveApiTokenUserId(minted.token);
+  ok(resolved === "alice", "plaintext token resolves to its owner");
+  ok(
+    (await apiTokens.resolveApiTokenUserId("cst_deadbeef")) === null,
+    "unknown token does not resolve",
+  );
+
+  const bearerHeaders = new Headers({
+    Authorization: `Bearer ${minted.token}`,
+  });
+  const bearerCtx = await getAuthContext(bearerHeaders);
+  ok(
+    bearerCtx.userId === "alice" && bearerCtx.role === "owner",
+    "Bearer auth yields the owner's AuthContext",
+  );
+  const badBearer = new Headers({ Authorization: "Bearer cst_not_real_token_zzzz" });
+  await expectStatus(getAuthContext(badBearer), 401, "bad Bearer token is 401");
+
+  await expectStatus(
+    apiTokens.revokeApiToken(editor, minted.id),
+    404,
+    "cannot revoke another user's token",
+  );
+  await apiTokens.revokeApiToken(owner, minted.id);
+  ok(
+    (await apiTokens.resolveApiTokenUserId(minted.token)) === null,
+    "revoked token stops resolving",
+  );
+  await apiTokens.revokeApiToken(viewer, carolToken.id);
+
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);
 }
