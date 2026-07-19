@@ -137,6 +137,17 @@ export const CHAIN_PRESETS: ChainPreset[] = [
       "https://coin-images.coingecko.com/coins/images/68507/small/linea-logo.jpeg?1756025484",
   },
   {
+    value: "1672",
+    label: "Pharos Pacific",
+    chainId: 1672,
+    rpcUrl: "https://rpc.pharos.xyz",
+    explorerUrl: "https://www.pharosscan.xyz",
+    iconKind: "image",
+    iconAlt: "Pharos",
+    iconUrl:
+      "https://coin-images.coingecko.com/coins/images/102172947/small/pharos_400x400.jpg?1776780623",
+  },
+  {
     value: "11155111",
     label: "Sepolia",
     chainId: 11155111,
@@ -170,6 +181,18 @@ export const CHAIN_PRESETS: ChainPreset[] = [
     iconAlt: "Arbitrum Sepolia",
     iconUrl:
       "https://coin-images.coingecko.com/coins/images/16547/small/arb.jpg?1721358242",
+    testnet: true,
+  },
+  {
+    value: "688689",
+    label: "Pharos Atlantic",
+    chainId: 688689,
+    rpcUrl: "https://atlantic.dplabs-internal.com",
+    explorerUrl: "https://atlantic.pharosscan.xyz",
+    iconKind: "image",
+    iconAlt: "Pharos Atlantic",
+    iconUrl:
+      "https://coin-images.coingecko.com/coins/images/102172947/small/pharos_400x400.jpg?1776780623",
     testnet: true,
   },
   {
