@@ -18,6 +18,7 @@ function toDto(row: NotebookRow) {
     projectId: row.projectId,
     title: row.title,
     description: row.description,
+    position: row.position,
     createdAt: row.createdAt.getTime(),
     updatedAt: row.updatedAt.getTime(),
   };
@@ -48,7 +49,7 @@ export async function listNotebooks(ctx: AuthContext, projectId: string) {
     .select()
     .from(schema.notebooks)
     .where(eq(schema.notebooks.projectId, projectId))
-    .orderBy(desc(schema.notebooks.updatedAt));
+    .orderBy(asc(schema.notebooks.position), desc(schema.notebooks.updatedAt));
   return rows.map(toDto);
 }
 
@@ -80,11 +81,18 @@ export async function createNotebook(
   await requireProject(ctx, projectId, "editor");
   if (!data.title) throw badRequest("title is required");
   const now = new Date();
+  const [{ maxPos }] = await db
+    .select({
+      maxPos: sql<number | null>`max(${schema.notebooks.position})`,
+    })
+    .from(schema.notebooks)
+    .where(eq(schema.notebooks.projectId, projectId));
   const row: NotebookRow = {
     id: crypto.randomUUID(),
     projectId,
     title: String(data.title),
     description: data.description ? String(data.description) : null,
+    position: (maxPos ?? -1) + 1,
     createdAt: now,
     updatedAt: now,
   };
@@ -113,6 +121,48 @@ export async function updateNotebook(
 export async function deleteNotebook(ctx: AuthContext, id: string): Promise<void> {
   await requireNotebook(ctx, id, "editor");
   await db.delete(schema.notebooks).where(eq(schema.notebooks.id, id));
+}
+
+/**
+ * Persist sidebar order for a project's notebooks. `orderedIds` must be a
+ * permutation of every notebook id in the project (no extras, no omissions).
+ */
+export async function reorderNotebooks(
+  ctx: AuthContext,
+  projectId: string,
+  orderedIds: unknown,
+): Promise<ReturnType<typeof toDto>[]> {
+  await requireProject(ctx, projectId, "editor");
+  if (!Array.isArray(orderedIds) || orderedIds.length === 0) {
+    throw badRequest("orderedIds must be a non-empty array");
+  }
+  const ids = orderedIds.map((id) => {
+    if (typeof id !== "string" || !id) throw badRequest("orderedIds must be strings");
+    return id;
+  });
+  if (new Set(ids).size !== ids.length) {
+    throw badRequest("orderedIds must be unique");
+  }
+
+  const existing = await db
+    .select({ id: schema.notebooks.id })
+    .from(schema.notebooks)
+    .where(eq(schema.notebooks.projectId, projectId));
+  const existingIds = new Set(existing.map((r) => r.id));
+  if (existingIds.size !== ids.length || ids.some((id) => !existingIds.has(id))) {
+    throw badRequest("orderedIds must list every notebook in the project exactly once");
+  }
+
+  db.transaction((tx) => {
+    for (let i = 0; i < ids.length; i++) {
+      tx.update(schema.notebooks)
+        .set({ position: i })
+        .where(eq(schema.notebooks.id, ids[i]))
+        .run();
+    }
+  });
+
+  return listNotebooks(ctx, projectId);
 }
 
 // --- Edit history (Google-Docs-style content versions) ----------------------

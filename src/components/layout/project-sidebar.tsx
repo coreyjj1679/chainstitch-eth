@@ -5,6 +5,21 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import {
   BookMarked,
   Braces,
   ChevronDown,
@@ -15,6 +30,7 @@ import {
   Eye,
   FileJson,
   GitBranch,
+  GripVertical,
   LayoutGrid,
   NotebookPen,
   Pencil,
@@ -43,7 +59,7 @@ import { CreateNotebookDialog } from "@/components/layout/create-notebook-dialog
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, timeAgo } from "@/lib/utils";
-import type { BlockType } from "@/lib/types";
+import type { BlockType, NotebookMeta } from "@/lib/types";
 
 const BLOCK_ICONS: Record<BlockType, typeof Eye> = {
   read: Eye,
@@ -540,6 +556,94 @@ const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
 const WIDTH_STORAGE_KEY = "cn-sidebar-width";
 
+/** One notebook row in the sidebar list — drag handle + link + actions. */
+function SortableNotebookRow({
+  notebook,
+  href,
+  active,
+  canEdit,
+  onDuplicate,
+  onRemove,
+}: {
+  notebook: NotebookMeta;
+  href: string;
+  active: boolean;
+  canEdit: boolean;
+  onDuplicate: () => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: notebook.id, disabled: !canEdit });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "group/link relative flex items-center gap-1 rounded-md px-1 py-1 text-sm transition-colors",
+        active
+          ? "bg-muted font-medium text-foreground before:absolute before:inset-y-1 before:-left-1 before:w-0.5 before:rounded-full before:bg-primary"
+          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+        isDragging && "z-10 opacity-70",
+      )}
+    >
+      {canEdit ? (
+        <button
+          type="button"
+          className="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/link:opacity-100 active:cursor-grabbing"
+          aria-label={`Reorder ${notebook.title}`}
+          title="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-3" />
+        </button>
+      ) : (
+        <span className="w-1 shrink-0" />
+      )}
+      <Link
+        href={href}
+        draggable={false}
+        onClick={(e) => {
+          if (!confirmLosingRecipeEdits(notebook.id)) e.preventDefault();
+        }}
+        className="flex min-w-0 flex-1 items-center gap-2 px-1 outline-none"
+      >
+        <NotebookPen className="size-3.5 shrink-0" />
+        <span className="min-w-0 flex-1 truncate">{notebook.title}</span>
+      </Link>
+      {canEdit && (
+        <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/link:opacity-100">
+          <button
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Duplicate ${notebook.title}`}
+            title="Duplicate notebook"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onDuplicate();
+            }}
+          >
+            <Copy className="size-3" />
+          </button>
+          <button
+            className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+            aria-label={`Delete ${notebook.title}`}
+            title="Delete notebook"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (confirm(`Delete notebook "${notebook.title}"?`)) onRemove();
+            }}
+          >
+            <Trash2 className="size-3" />
+          </button>
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function ProjectSidebar({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -620,6 +724,37 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Small threshold so a plain click still navigates; drag starts after a few px.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+
+  const onNotebookDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      if (!canEdit || !notebooks) return;
+      const { active, over } = event;
+      if (!over || active.id === over.id) return;
+      const oldIndex = notebooks.findIndex((n) => n.id === active.id);
+      const newIndex = notebooks.findIndex((n) => n.id === over.id);
+      if (oldIndex < 0 || newIndex < 0) return;
+      const next = arrayMove(notebooks, oldIndex, newIndex);
+      queryClient.setQueryData(["notebooks", projectId], next);
+      void api.notebooks
+        .reorder(
+          projectId,
+          next.map((n) => n.id),
+        )
+        .then((ordered) => {
+          queryClient.setQueryData(["notebooks", projectId], ordered);
+        })
+        .catch((e: Error) => {
+          queryClient.invalidateQueries({ queryKey: ["notebooks", projectId] });
+          toast.error(e.message || "Failed to reorder notebooks");
+        });
+    },
+    [canEdit, notebooks, projectId, queryClient],
+  );
+
   return (
     <aside
       className="relative flex shrink-0 flex-col overflow-hidden border-r bg-background/50"
@@ -688,58 +823,30 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
             <Skeleton className="h-7" />
           </div>
         ) : notebooks && notebooks.length > 0 ? (
-          <div className="grid gap-0.5">
-            {notebooks.map((n) => {
-              const href = `${base}/n/${n.id}`;
-              const active = pathname === href;
-              return (
-                <Link
-                  key={n.id}
-                  href={href}
-                  onClick={(e) => {
-                    if (!confirmLosingRecipeEdits(n.id)) e.preventDefault();
-                  }}
-                  className={cn(
-                    "group/link relative flex items-center gap-2 rounded-md px-2 py-1 text-sm transition-colors",
-                    active
-                      ? "bg-muted font-medium text-foreground before:absolute before:inset-y-1 before:-left-1 before:w-0.5 before:rounded-full before:bg-primary"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                  )}
-                >
-                  <NotebookPen className="size-3.5 shrink-0" />
-                  <span className="min-w-0 flex-1 truncate">{n.title}</span>
-                  {canEdit && (
-                    <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover/link:opacity-100">
-                      <button
-                        className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label={`Duplicate ${n.title}`}
-                        title="Duplicate notebook"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          duplicate.mutate(n.id);
-                        }}
-                      >
-                        <Copy className="size-3" />
-                      </button>
-                      <button
-                        className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
-                        aria-label={`Delete ${n.title}`}
-                        title="Delete notebook"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          if (confirm(`Delete notebook "${n.title}"?`)) remove.mutate(n.id);
-                        }}
-                      >
-                        <Trash2 className="size-3" />
-                      </button>
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </div>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={onNotebookDragEnd}
+          >
+            <SortableContext
+              items={notebooks.map((n) => n.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              <div className="grid gap-0.5">
+                {notebooks.map((n) => (
+                  <SortableNotebookRow
+                    key={n.id}
+                    notebook={n}
+                    href={`${base}/n/${n.id}`}
+                    active={pathname === `${base}/n/${n.id}`}
+                    canEdit={canEdit}
+                    onDuplicate={() => duplicate.mutate(n.id)}
+                    onRemove={() => remove.mutate(n.id)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         ) : (
           <p className="px-2 py-2 text-xs text-muted-foreground/70">
             {canEdit ? "No notebooks yet. Click + to create one." : "No notebooks yet."}

@@ -294,6 +294,7 @@ function insertWelcomeNotebook(
       title: WELCOME_TITLE,
       description:
         "A hands-on tour — run it top to bottom, edit anything, delete when done",
+      position: 0,
       createdAt: now,
       updatedAt: now,
     })

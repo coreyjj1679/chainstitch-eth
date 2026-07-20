@@ -252,6 +252,8 @@ export const notebooks = sqliteTable("notebooks", {
     .references(() => projects.id, { onDelete: "cascade" }),
   title: text("title").notNull(),
   description: text("description"),
+  /** Sidebar list order within the project (drag-to-reorder). */
+  position: integer("position").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });

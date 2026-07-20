@@ -134,6 +134,12 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    /** Persist drag-to-reorder order in the project sidebar. */
+    reorder: (projectId: string, orderedIds: string[]) =>
+      request<NotebookMeta[]>(`/api/projects/${projectId}/notebooks/reorder`, {
+        method: "PUT",
+        body: JSON.stringify({ orderedIds }),
+      }),
     update: (id: string, data: Partial<{ title: string; description: string }>) =>
       request<NotebookMeta>(`/api/notebooks/${id}`, {
         method: "PATCH",

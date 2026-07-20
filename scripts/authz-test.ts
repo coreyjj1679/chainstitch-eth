@@ -106,6 +106,7 @@ async function main() {
     projectId: "other-project",
     title: "Foreign",
     description: null,
+    position: 0,
     createdAt: now,
     updatedAt: now,
   });

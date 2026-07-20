@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS notebooks (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
+  position INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -244,6 +245,7 @@ addColumn(
 addColumn("ALTER TABLE state_views ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
 addColumn("ALTER TABLE state_views ADD COLUMN span INTEGER NOT NULL DEFAULT 2");
 addColumn("ALTER TABLE invites ADD COLUMN project_id TEXT");
+addColumn("ALTER TABLE notebooks ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
 
 // Seed the instance workspace and the implicit local-mode owner. Idempotent;
 // pre-workspace databases are adopted automatically (their projects carry the
@@ -277,6 +279,35 @@ export { schema, sqlite };
 sqlite.exec(
   "CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
 );
+
+// One-shot: existing notebooks had no position — seed from updated_at DESC so
+// the sidebar order matches the previous default sort before users drag.
+{
+  const claimed =
+    sqlite
+      .prepare(
+        "INSERT OR IGNORE INTO app_meta (key, value) VALUES ('notebook_positions_backfilled', '1')",
+      )
+      .run().changes === 1;
+  if (claimed) {
+    const projects = sqlite
+      .prepare("SELECT DISTINCT project_id AS id FROM notebooks")
+      .all() as Array<{ id: string }>;
+    const listStmt = sqlite.prepare(
+      "SELECT id FROM notebooks WHERE project_id = ? ORDER BY updated_at DESC",
+    );
+    const setPos = sqlite.prepare(
+      "UPDATE notebooks SET position = ? WHERE id = ?",
+    );
+    for (const { id: projectId } of projects) {
+      const rows = listStmt.all(projectId) as Array<{ id: string }>;
+      for (let i = 0; i < rows.length; i++) {
+        setPos.run(i, rows[i].id);
+      }
+    }
+  }
+}
+
 if (process.env.CHAINSTITCH_SKIP_EXAMPLE_SEED !== "1") {
   const { c: projectCount } = sqlite
     .prepare("SELECT COUNT(*) AS c FROM projects")

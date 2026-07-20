@@ -1,5 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import type { AuthContext } from "@/server/auth-context";
 import { badRequest } from "@/server/errors";
@@ -307,11 +307,18 @@ export async function importNotebookFile(
 
   // --- Create the notebook + blocks atomically -------------------------------
   const now = new Date();
+  const [{ maxPos }] = await db
+    .select({
+      maxPos: sql<number | null>`max(${schema.notebooks.position})`,
+    })
+    .from(schema.notebooks)
+    .where(eq(schema.notebooks.projectId, projectId));
   const notebookRow = {
     id: crypto.randomUUID(),
     projectId,
     title: file.title,
     description: file.description,
+    position: (maxPos ?? -1) + 1,
     createdAt: now,
     updatedAt: now,
   };

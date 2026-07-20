@@ -163,6 +163,8 @@ export interface NotebookMeta {
   projectId: string;
   title: string;
   description: string | null;
+  /** Sidebar list order within the project. */
+  position: number;
   createdAt: number;
   updatedAt: number;
 }
