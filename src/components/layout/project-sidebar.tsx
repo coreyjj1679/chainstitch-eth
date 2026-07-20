@@ -22,9 +22,11 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   BookMarked,
   Braces,
+  ArrowDownAZ,
   ChevronDown,
   ChevronRight,
   CircleCheck,
+  Clock,
   Copy,
   Database,
   Eye,
@@ -57,6 +59,15 @@ import { displayValue } from "@/lib/serialize";
 import { confirmLosingRecipeEdits, useNotebookStore } from "@/stores/notebook-store";
 import { CreateNotebookDialog } from "@/components/layout/create-notebook-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn, timeAgo } from "@/lib/utils";
 import type { BlockType, NotebookMeta } from "@/lib/types";
@@ -79,6 +90,140 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
       {children}
     </span>
+  );
+}
+
+// --- Notebook list sort (JupyterLab file-browser style) ----------------------
+// Jupyter defaults to Name with natural order; Last Modified is the other
+// column. We keep Manual for the drag-to-reorder we ship alongside.
+
+type NotebookSortBy = "name" | "modified" | "manual";
+type NotebookSortDir = "asc" | "desc";
+
+interface NotebookSort {
+  by: NotebookSortBy;
+  dir: NotebookSortDir;
+}
+
+const NOTEBOOK_SORT_KEY = "cn-notebooks-sort";
+const DEFAULT_NOTEBOOK_SORT: NotebookSort = { by: "name", dir: "asc" };
+
+const notebookSortListeners = new Set<() => void>();
+
+function parseNotebookSort(raw: string | null): NotebookSort {
+  if (!raw) return DEFAULT_NOTEBOOK_SORT;
+  try {
+    const parsed = JSON.parse(raw) as Partial<NotebookSort>;
+    const by: NotebookSortBy =
+      parsed.by === "modified" || parsed.by === "manual" || parsed.by === "name"
+        ? parsed.by
+        : "name";
+    const dir: NotebookSortDir = parsed.dir === "desc" ? "desc" : "asc";
+    return { by, dir: by === "manual" ? "asc" : dir };
+  } catch {
+    return DEFAULT_NOTEBOOK_SORT;
+  }
+}
+
+function useNotebookSort(): [NotebookSort, (next: NotebookSort) => void] {
+  const sort = useSyncExternalStore(
+    (listener) => {
+      notebookSortListeners.add(listener);
+      return () => notebookSortListeners.delete(listener);
+    },
+    () => parseNotebookSort(localStorage.getItem(NOTEBOOK_SORT_KEY)),
+    () => DEFAULT_NOTEBOOK_SORT,
+  );
+  const setSort = (next: NotebookSort) => {
+    localStorage.setItem(NOTEBOOK_SORT_KEY, JSON.stringify(next));
+    for (const listener of notebookSortListeners) listener();
+  };
+  return [sort, setSort];
+}
+
+/** Jupyter "Sort file names naturally" — file2 before file10. */
+function naturalCompare(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function sortNotebooks(list: NotebookMeta[], sort: NotebookSort): NotebookMeta[] {
+  if (sort.by === "manual") {
+    // Server already returns position order; keep a stable copy.
+    return list.slice();
+  }
+  const dir = sort.dir === "asc" ? 1 : -1;
+  return list.slice().sort((a, b) => {
+    if (sort.by === "name") {
+      const cmp = naturalCompare(a.title, b.title);
+      return cmp !== 0 ? cmp * dir : a.id.localeCompare(b.id);
+    }
+    const cmp = a.updatedAt - b.updatedAt;
+    return cmp !== 0 ? cmp * dir : naturalCompare(a.title, b.title);
+  });
+}
+
+function notebookSortLabel(sort: NotebookSort): string {
+  if (sort.by === "manual") return "Manual order";
+  if (sort.by === "name") {
+    return sort.dir === "asc" ? "Name (A→Z)" : "Name (Z→A)";
+  }
+  return sort.dir === "desc" ? "Last modified (newest)" : "Last modified (oldest)";
+}
+
+function NotebookSortControl({
+  sort,
+  onChange,
+}: {
+  sort: NotebookSort;
+  onChange: (next: NotebookSort) => void;
+}) {
+  const SortIcon =
+    sort.by === "manual"
+      ? GripVertical
+      : sort.by === "modified"
+        ? Clock
+        : ArrowDownAZ;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Sort notebooks: ${notebookSortLabel(sort)}`}
+            title={`Sort: ${notebookSortLabel(sort)}`}
+          />
+        }
+      >
+        <SortIcon />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-52">
+        <DropdownMenuLabel>Sort notebooks</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          value={sort.by === "manual" ? "manual" : `${sort.by}:${sort.dir}`}
+          onValueChange={(value) => {
+            if (value === "manual") {
+              onChange({ by: "manual", dir: "asc" });
+              return;
+            }
+            const [by, dir] = value.split(":") as [NotebookSortBy, NotebookSortDir];
+            onChange({ by, dir });
+          }}
+        >
+          <DropdownMenuRadioItem value="name:asc">Name (A→Z)</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="name:desc">Name (Z→A)</DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="modified:desc">
+            Last modified (newest)
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="modified:asc">
+            Last modified (oldest)
+          </DropdownMenuRadioItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioItem value="manual">Manual order</DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -562,6 +707,7 @@ function SortableNotebookRow({
   href,
   active,
   canEdit,
+  canReorder,
   onDuplicate,
   onRemove,
 }: {
@@ -569,11 +715,13 @@ function SortableNotebookRow({
   href: string;
   active: boolean;
   canEdit: boolean;
+  /** Drag handle only in Manual sort mode (and when the user can edit). */
+  canReorder: boolean;
   onDuplicate: () => void;
   onRemove: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: notebook.id, disabled: !canEdit });
+    useSortable({ id: notebook.id, disabled: !canReorder });
 
   return (
     <div
@@ -587,7 +735,7 @@ function SortableNotebookRow({
         isDragging && "z-10 opacity-70",
       )}
     >
-      {canEdit ? (
+      {canReorder ? (
         <button
           type="button"
           className="flex size-5 shrink-0 cursor-grab items-center justify-center rounded text-muted-foreground/40 opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/link:opacity-100 active:cursor-grabbing"
@@ -654,6 +802,11 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
   // Effective role on this project (workspace role or per-project grant).
   const canEdit = project?.role === "editor" || project?.role === "owner";
   const base = `/p/${projectId}`;
+  const [notebookSort, setNotebookSort] = useNotebookSort();
+  const sortedNotebooks = notebooks
+    ? sortNotebooks(notebooks, notebookSort)
+    : undefined;
+  const canReorder = canEdit && notebookSort.by === "manual";
 
   const [width, setWidth] = useState<number>(() => {
     if (typeof window === "undefined") return 240;
@@ -731,9 +884,10 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
 
   const onNotebookDragEnd = useCallback(
     (event: DragEndEvent) => {
-      if (!canEdit || !notebooks) return;
+      if (!canReorder || !notebooks) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
+      // Reorder against the server/manual order (position), not a name/date view.
       const oldIndex = notebooks.findIndex((n) => n.id === active.id);
       const newIndex = notebooks.findIndex((n) => n.id === over.id);
       if (oldIndex < 0 || newIndex < 0) return;
@@ -752,7 +906,7 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
           toast.error(e.message || "Failed to reorder notebooks");
         });
     },
-    [canEdit, notebooks, projectId, queryClient],
+    [canReorder, notebooks, projectId, queryClient],
   );
 
   return (
@@ -806,14 +960,17 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
         label="Notebooks"
         className="shrink-0 px-3 pt-3 pb-1"
         action={
-          canEdit && (
-            <CreateNotebookDialog
-              projectId={projectId}
-              trigger={<Button variant="ghost" size="icon-xs" aria-label="New notebook" />}
-            >
-              <Plus />
-            </CreateNotebookDialog>
-          )
+          <span className="flex shrink-0 items-center gap-0.5">
+            <NotebookSortControl sort={notebookSort} onChange={setNotebookSort} />
+            {canEdit && (
+              <CreateNotebookDialog
+                projectId={projectId}
+                trigger={<Button variant="ghost" size="icon-xs" aria-label="New notebook" />}
+              >
+                <Plus />
+              </CreateNotebookDialog>
+            )}
+          </span>
         }
       >
         <nav className="-mx-1 mt-1 max-h-[40vh] overflow-y-auto pb-1">
@@ -822,24 +979,26 @@ export function ProjectSidebar({ projectId }: { projectId: string }) {
             <Skeleton className="h-7" />
             <Skeleton className="h-7" />
           </div>
-        ) : notebooks && notebooks.length > 0 ? (
+        ) : sortedNotebooks && sortedNotebooks.length > 0 ? (
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={onNotebookDragEnd}
           >
             <SortableContext
-              items={notebooks.map((n) => n.id)}
+              items={sortedNotebooks.map((n) => n.id)}
               strategy={verticalListSortingStrategy}
+              disabled={!canReorder}
             >
               <div className="grid gap-0.5">
-                {notebooks.map((n) => (
+                {sortedNotebooks.map((n) => (
                   <SortableNotebookRow
                     key={n.id}
                     notebook={n}
                     href={`${base}/n/${n.id}`}
                     active={pathname === `${base}/n/${n.id}`}
                     canEdit={canEdit}
+                    canReorder={canReorder}
                     onDuplicate={() => duplicate.mutate(n.id)}
                     onRemove={() => remove.mutate(n.id)}
                   />
