@@ -42,8 +42,15 @@ export interface RunNotebookOptions {
   wagmiConfig?: Config;
   account?: `0x${string}`;
   mode?: "execute" | "simulate";
-  /** Caller for simulate-all-as (eth_call writes). */
+  /** Caller for simulate-all-as / default write sender. */
   defaultSender?: `0x${string}`;
+  /**
+   * Stateful dry-run: every write is sent via anvil_impersonateAccount
+   * (sender group address, else defaultSender). Ignores sender-group
+   * simulateOnly. Requires an anvil (or Hardhat) RPC — use with
+   * evm_snapshot/revert or an ephemeral fork so the chain tip stays clean.
+   */
+  forceImpersonate?: boolean;
   localSigner?: RunContext["localSigner"];
   /** Recipe cells need this; without it they fail with a clear error. */
   recipes?: Recipe[];
@@ -110,6 +117,17 @@ async function executeRunnable(
       }
     }
 
+    // Stateful dry-run: always impersonate writes (multi-step state accumulates).
+    if (opts.forceImpersonate && block.type === "write") {
+      mode = "execute";
+      impersonate = true;
+      if (!sender) {
+        throw new Error(
+          "Stateful simulate needs a caller — set Simulate-all-as or wrap writes in a sender group",
+        );
+      }
+    }
+
     const outcome = await runBlock(block, {
       publicClient: opts.publicClient,
       contracts: opts.contracts,
@@ -126,8 +144,11 @@ async function executeRunnable(
       status: "success",
       value: outcome.value,
       txHash: outcome.txHash,
-      simulated: outcome.simulated,
-      kind: outcome.kind,
+      // Treat fork/snapshot dry-runs as simulated for saved-run badges.
+      simulated: opts.forceImpersonate ? true : outcome.simulated,
+      kind: opts.forceImpersonate && outcome.kind?.includes("impersonated")
+        ? "Write (impersonated on fork — dry-run)"
+        : outcome.kind,
       sender: outcome.sender,
       blockNumber: outcome.blockNumber,
       details: outcome.details,
@@ -427,11 +448,16 @@ export async function runNotebook(
   let failedBlockId: string | undefined;
   let lastWriteEvents: DecodedEventEntry[] | null = null;
 
-  const batchOpts = opts.defaultSender
-    ? ({ mode: "simulate" as const, sender: opts.defaultSender })
-    : opts.mode === "simulate"
-      ? ({ mode: "simulate" as const })
-      : undefined;
+  const batchOpts =
+    opts.forceImpersonate && opts.defaultSender
+      ? ({ mode: "execute" as const, sender: opts.defaultSender })
+      : opts.forceImpersonate
+        ? ({ mode: "execute" as const })
+        : opts.defaultSender
+          ? ({ mode: "simulate" as const, sender: opts.defaultSender })
+          : opts.mode === "simulate"
+            ? ({ mode: "simulate" as const })
+            : undefined;
 
   for (const block of executionOrder(blocks)) {
     if (opts.signal?.aborted) {

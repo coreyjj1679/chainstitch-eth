@@ -4,10 +4,9 @@
  *   chainstitch run <file.notebook.json> [--rpc-url …] [--fork-url …] …
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
-import { createServer } from "node:net";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { ChildProcess } from "node:child_process";
 import {
   createPublicClient,
   createWalletClient,
@@ -19,6 +18,7 @@ import { foundry } from "viem/chains";
 import { parseNotebookFile } from "@/lib/notebook-file";
 import { runNotebook } from "@/lib/run-notebook";
 import { blockLabel } from "@/lib/block-label";
+import { spawnAnvilFork } from "@/lib/anvil-fork";
 import type { ContractEntry, NotebookBlock } from "@/lib/types";
 
 interface RunFlags {
@@ -40,7 +40,7 @@ Options:
   --fork-url <url>      Spawn anvil --fork-url on an ephemeral port
   --chain-id <n>        Expected chain id (default: notebook's chain.id, or 31337)
   --private-key <hex>   Sign writes (otherwise use sender impersonation on anvil)
-  --simulate            eth_call writes instead of sending transactions
+  --simulate            eth_call writes instead of sending (no multi-step state)
   --timeout-ms <n>      Overall run timeout (default 120000)
 
 Exit codes: 0 = all expects passed, 1 = failure / usage error.`);
@@ -85,85 +85,6 @@ function parseArgs(argv: string[]): { cmd: string; flags: RunFlags } {
   }
   if (!file) usage();
   return { cmd, flags: { ...flags, file } };
-}
-
-function freePort(): Promise<number> {
-  return new Promise((resolvePort, reject) => {
-    const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
-      const addr = server.address();
-      if (!addr || typeof addr === "string") {
-        server.close();
-        reject(new Error("Could not allocate a free port"));
-        return;
-      }
-      const port = addr.port;
-      server.close((err) => (err ? reject(err) : resolvePort(port)));
-    });
-  });
-}
-
-async function waitForRpc(url: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_chainId",
-          params: [],
-        }),
-      });
-      if (res.ok) return;
-    } catch {
-      // retry
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`Timed out waiting for RPC at ${url}`);
-}
-
-async function spawnAnvil(forkUrl: string): Promise<{
-  url: string;
-  child: ChildProcess;
-  chainId: number;
-}> {
-  const port = await freePort();
-  const args = ["--port", String(port), "--fork-url", forkUrl, "--silent"];
-  const child = spawn("anvil", args, { stdio: ["ignore", "pipe", "pipe"] });
-  let stderr = "";
-  child.stderr?.on("data", (d: Buffer) => {
-    stderr += d.toString();
-  });
-  const url = `http://127.0.0.1:${port}`;
-  try {
-    await waitForRpc(url, 30_000);
-  } catch (e) {
-    child.kill("SIGTERM");
-    const hint =
-      stderr.trim() ||
-      (e instanceof Error ? e.message : String(e));
-    throw new Error(
-      `Failed to start anvil (${hint}). Install Foundry: https://book.getfoundry.sh/getting-started/installation`,
-    );
-  }
-  // Read chain id from the fork
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "eth_chainId",
-      params: [],
-    }),
-  });
-  const body = (await res.json()) as { result?: string };
-  const chainId = Number.parseInt(body.result ?? "0x7a69", 16);
-  return { url, child, chainId };
 }
 
 function fileToBlocks(filePath: string): {
@@ -250,7 +171,7 @@ async function cmdRun(flags: RunFlags): Promise<number> {
   try {
     if (flags.forkUrl) {
       console.error(`Spawning anvil --fork-url ${flags.forkUrl}…`);
-      const spawned = await spawnAnvil(flags.forkUrl);
+      const spawned = await spawnAnvilFork(flags.forkUrl);
       anvil = spawned.child;
       rpcUrl = spawned.url;
       if (!flags.chainId) runtimeChainId = spawned.chainId;

@@ -58,6 +58,7 @@ import { api } from "@/lib/api";
 import { runBlock, shortError, type TracedError } from "@/lib/engine";
 import { evaluateCondition } from "@/lib/condition";
 import { runNotebook } from "@/lib/run-notebook";
+import { evmRevert, evmSnapshot, isAnvilRpc } from "@/lib/anvil-rpc";
 import { interpolate } from "@/lib/variables";
 import {
   blockLabel,
@@ -1076,52 +1077,110 @@ export function NotebookEditor({
     [contracts, recipes, docId, project.id, queryClient],
   );
 
-  /** Runs every block in execution order. With `simulateAs`, writes are
-   *  eth_call'd (no wallet, nothing sent); sender groups override the caller.
-   *  Condition groups gate their children: false skips them, errors stop.
-   *  Expect blocks fail the run when unmet. */
+  /** Runs every block in execution order.
+   *  - No args: real Run all (wallet / impersonation / local signer).
+   *  - `as`: stateful dry-run — impersonate writes on anvil (local snapshot
+   *    or server ephemeral fork). Multi-step state accumulates; nothing
+   *    remains on the project RPC tip. */
   const runAllWith = useCallback(
-    async (simulateAs?: `0x${string}`) => {
+    async (as?: `0x${string}`) => {
       setRunning(true);
       // Jupyter-style: outputs restart, the exec counter and history continue.
       beginRunAll();
       const all = useNotebookStore.getState().blocks;
       const stored = useSignerStore.getState().signers[project.id];
-      const localSigner = stored
-        ? (() => {
-            const signerAccount = privateKeyToAccount(stored.privateKey);
-            return {
-              account: signerAccount,
-              walletClient: createWalletClient({
+      const localSigner =
+        !as && stored
+          ? (() => {
+              const signerAccount = privateKeyToAccount(stored.privateKey);
+              return {
                 account: signerAccount,
-                chain: chainForProject(project),
-                transport: http(project.rpcUrl),
-              }),
-            };
-          })()
-        : undefined;
+                walletClient: createWalletClient({
+                  account: signerAccount,
+                  chain: chainForProject(project),
+                  transport: http(project.rpcUrl),
+                }),
+              };
+            })()
+          : undefined;
 
-      const summary = await runNotebook(all, {
-        publicClient,
-        contracts,
-        initialScope: useNotebookStore.getState().scope,
-        wagmiConfig,
-        account,
-        mode: simulateAs ? "simulate" : "execute",
-        defaultSender: simulateAs,
-        localSigner,
-        recipes,
-        onBlockResult: (id, result) => setResult(id, result),
-      });
-
-      // Sync final scope (variable blocks + outputs) into the store.
-      for (const [key, value] of Object.entries(summary.scope)) {
-        setScopeVariable(key, value);
+      try {
+        if (as) {
+          const onAnvil = await isAnvilRpc(publicClient);
+          if (onAnvil) {
+            const snap = await evmSnapshot(publicClient);
+            try {
+              const summary = await runNotebook(all, {
+                publicClient,
+                contracts,
+                initialScope: useNotebookStore.getState().scope,
+                wagmiConfig,
+                account,
+                defaultSender: as,
+                forceImpersonate: true,
+                recipes,
+                onBlockResult: (id, result) => setResult(id, result),
+              });
+              for (const [key, value] of Object.entries(summary.scope)) {
+                setScopeVariable(key, value);
+              }
+              if (!summary.ok) toast.error("Simulate stopped: a block failed");
+              else toast.success("Simulate finished (fork state reverted)");
+            } finally {
+              await evmRevert(publicClient, snap);
+            }
+          } else {
+            // Live / remote RPC: ephemeral anvil --fork-url on the server.
+            toast.message("Forking project RPC on the server…");
+            const remote = await api.notebooks.simulate(docId, { as });
+            for (const [id, r] of Object.entries(remote.results)) {
+              setResult(id, {
+                status: r.status as BlockResult["status"],
+                kind: r.kind,
+                error: r.error,
+                sender: r.sender as `0x${string}` | undefined,
+                txHash: r.txHash as `0x${string}` | undefined,
+                durationMs: r.durationMs,
+                simulated: true,
+                ranAt: Date.now(),
+              });
+            }
+            if (!remote.ok) {
+              toast.error(
+                remote.failedLabel
+                  ? `Simulate stopped at ${remote.failedLabel}`
+                  : "Simulate stopped: a block failed",
+              );
+            } else {
+              toast.success(
+                `Simulate finished on ephemeral fork (chain ${remote.forkChainId})`,
+              );
+            }
+          }
+          if (!isRecipeDoc && !readOnly) await saveRunRecord(true);
+        } else {
+          const summary = await runNotebook(all, {
+            publicClient,
+            contracts,
+            initialScope: useNotebookStore.getState().scope,
+            wagmiConfig,
+            account,
+            mode: "execute",
+            localSigner,
+            recipes,
+            onBlockResult: (id, result) => setResult(id, result),
+          });
+          for (const [key, value] of Object.entries(summary.scope)) {
+            setScopeVariable(key, value);
+          }
+          if (!summary.ok) toast.error("Run stopped: a block failed");
+          if (!isRecipeDoc && !readOnly) await saveRunRecord(false);
+        }
+      } catch (e) {
+        toast.error(shortError(e));
+      } finally {
+        setRunning(false);
       }
-
-      if (!summary.ok) toast.error("Run stopped: a block failed");
-      if (!isRecipeDoc && !readOnly) await saveRunRecord(!!simulateAs);
-      setRunning(false);
     },
     [
       beginRunAll,
@@ -1136,6 +1195,7 @@ export function NotebookEditor({
       saveRunRecord,
       isRecipeDoc,
       readOnly,
+      docId,
     ],
   );
 
@@ -1156,7 +1216,7 @@ export function NotebookEditor({
         return;
       }
       setSimulateOpen(false);
-      runAllWith(simulateAs as `0x${string}`);
+      void runAllWith(simulateAs as `0x${string}`);
     } catch (e) {
       setSimulateError(shortError(e));
     } finally {
@@ -1835,10 +1895,12 @@ export function NotebookEditor({
               <p className="text-xs text-destructive">{simulateError}</p>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Reads and RPC calls run normally; writes are simulated via{" "}
-                <code className="rounded bg-muted px-1 font-mono">eth_call</code>{" "}
-                as this address — no wallet needed, nothing is sent on-chain.
-                Sender groups override the caller for their blocks.
+                Stateful dry-run: writes are sent via{" "}
+                <code className="rounded bg-muted px-1 font-mono">anvil_impersonateAccount</code>{" "}
+                so multi-step flows accumulate state. On a local anvil RPC the
+                tip is snapshotted and reverted; otherwise the server forks the
+                project RPC ephemerally. Sender groups override the caller. No
+                wallet, no keys, nothing left on-chain.
               </p>
             )}
           </div>

@@ -449,6 +449,23 @@ async function main() {
     "non-member cannot read notebook handoff",
   );
 
+  // Stateful simulate is gated like other notebook reads; reject before spawn.
+  const { simulateNotebookOnFork } = await import("../src/server/simulate-notebook");
+  await expectStatus(
+    simulateNotebookOnFork(nonMember, imported.notebook.id, {
+      as: "0x0000000000000000000000000000000000000001",
+    }),
+    403,
+    "non-member cannot simulate a notebook",
+  );
+  await expectStatus(
+    simulateNotebookOnFork(owner, "other-notebook", {
+      as: "0x0000000000000000000000000000000000000001",
+    }),
+    404,
+    "foreign notebook cannot be simulated",
+  );
+
   // --- In-place update from a manifest ----------------------------------------
   const updatedManifest = {
     ...roundTrip,

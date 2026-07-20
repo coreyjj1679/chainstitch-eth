@@ -146,6 +146,38 @@ export const api = {
         body: JSON.stringify(data),
       }),
     remove: (id: string) => request(`/api/notebooks/${id}`, { method: "DELETE" }),
+    /**
+     * Stateful dry-run on an ephemeral anvil fork of the project's RPC
+     * (impersonation, no keys). Returns per-block outcomes.
+     */
+    simulate: (
+      id: string,
+      data?: { as?: string; timeoutMs?: number },
+    ) =>
+      request<{
+        ok: boolean;
+        mode: "anvil-fork";
+        forkChainId: number;
+        succeeded: number;
+        failed: number;
+        skipped: number;
+        failedBlockId?: string;
+        failedLabel?: string;
+        results: Record<
+          string,
+          {
+            status: string;
+            kind?: string;
+            error?: string;
+            sender?: string;
+            txHash?: string;
+            durationMs?: number;
+          }
+        >;
+      }>(`/api/notebooks/${id}/simulate`, {
+        method: "POST",
+        body: JSON.stringify(data ?? {}),
+      }),
     saveBlocks: (id: string, blocks: NotebookBlock[]) =>
       request(`/api/notebooks/${id}/blocks`, {
         method: "PUT",

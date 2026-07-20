@@ -36,6 +36,15 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 RUN groupadd --system --gid 999 nodejs && useradd --system --uid 999 --gid nodejs nextjs \
   && mkdir -p /app/data && chown nextjs:nodejs /app/data
 
+# anvil for MCP/API simulate_notebook (ephemeral --fork-url). Foundry install
+# is amd64/arm64; keep only the anvil binary in the final image.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates git \
+  && curl -L https://foundry.paradigm.xyz | bash \
+  && /root/.foundry/bin/foundryup \
+  && install -m 755 /root/.foundry/bin/anvil /usr/local/bin/anvil \
+  && rm -rf /root/.foundry /var/lib/apt/lists/*
+
 # Standalone output bundles the server and the traced node_modules subset
 # (including better-sqlite3's native binding).
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./

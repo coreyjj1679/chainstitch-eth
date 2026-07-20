@@ -40,7 +40,7 @@ export function LandingPage({
       icon: FlaskConical,
       tint: "bg-sky-400/10 text-sky-400",
       title: "Simulate as anyone",
-      body: "Dry-run entire notebooks as any address via eth_call — revert reasons and decoded call traces surface before anything is sent. On anvil forks, impersonate whales with no keys at all.",
+      body: "Dry-run entire notebooks as any address on an ephemeral anvil fork — writes impersonate so multi-step state accumulates, then the fork is discarded. Revert reasons and decoded traces surface before anything hits a real chain.",
     },
     {
       icon: Code2,

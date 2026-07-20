@@ -53,10 +53,12 @@ npm run dev
    dev` must always work with no env vars, no login, no migration step.
    Anything that adds friction to local mode needs a very good reason.
 2. **Private keys never touch the server.** Writes are signed in the
-   browser wallet. Chain execution is client-side — the server never makes
-   chain calls or signs anything. Run outputs are stored only as opaque
-   blobs the client hands over (notebook run-state, saved runs); don't add
-   server-side signing or server-side execution.
+   browser wallet. Chain execution for live runs is client-side. The one
+   intentional exception is **ephemeral fork simulation**
+   (`simulate_notebook` / `POST /api/notebooks/:id/simulate`): the server
+   may spawn a local `anvil --fork-url` of the project's RPC, impersonate
+   EOAs with cheatcodes (no keys), run the notebook, and discard the fork.
+   Do not add server-side signing or persistent server-side wallets.
 3. **Authorization lives in the DAL.** Every function in `src/server/dal/`
    takes an auth context and scopes queries by workspace. New endpoints
    must go through the DAL — never query the database from a route
@@ -82,8 +84,8 @@ npm run test:cli-runner   # chainstitch run exit codes vs anvil
 
 CI runs all of these (plus a production build) on every PR. Auth suites
 create their own throwaway databases and never touch `data/`. Headless
-execution lives in the **CLI** (`npx chainstitch run`) — never add
-server-side signing or chain calls (invariant #2).
+execution for CI lives in the **CLI** (`npx chainstitch run`). Server-side
+fork simulation (MCP / API) is keyless anvil-only — see invariant #2.
 
 ## Pull requests
 

@@ -14,6 +14,7 @@ import {
   updateNotebookBlocks,
 } from "@/server/dal/notebook-files";
 import { lookupAbiForProject } from "@/server/abi-lookup";
+import { simulateNotebookOnFork } from "@/server/simulate-notebook";
 import {
   eventSignature,
   functionSignature,
@@ -33,9 +34,8 @@ import type { Abi, AbiFunction } from "viem";
  * over the same DAL the REST routes use, so authorization is identical.
  *
  * Sessions: none (each request is independent, as the spec's stateless mode
- * allows). Execution tools are intentionally absent: block execution is
- * browser-side by design (see CONTRIBUTING invariants). Headless runs use
- * the CLI (`npx chainstitch run`); MCP execution tools can ride that later.
+ * allows). Stateful dry-runs use `simulate_notebook` (ephemeral anvil fork +
+ * impersonation, no keys). Live wallet execution stays browser-side.
  */
 
 const SERVER_NAME = "chainstitch";
@@ -49,10 +49,11 @@ const INSTRUCTIONS = `Chainstitch is a notebook tool for smart contracts: blocks
 Typical flows:
 - Author a notebook from a codebase: list_projects → list_contracts (see what the address book has) → get_notebook_format → create_notebook (embed ABIs for anything missing, e.g. from Foundry/Hardhat artifacts).
 - Iterate on an existing notebook: get_notebook → edit the manifest → update_notebook_blocks (the previous content stays restorable in the notebook's edit history).
+- Verify before sharing: simulate_notebook (spawns an ephemeral anvil --fork-url of the project's RPC, impersonates writes — no keys; multi-step state accumulates). Fix expects / args until ok=true, then hand the notebook URL to the team.
 - Hand a flow to the team: get_notebook_handoff for the integration brief (call sequence for frontend, expected events for backend/indexer, {{variable}} wiring), then get_notebook_code with flavor "wagmi" (or "viem") for copy-paste source.
 - get_notebook returns the same portable manifest create_notebook and update_notebook_blocks accept — read one notebook as a template for writing another.
 
-Notes: notebooks are definitions; execution happens in the user's browser (writes are signed by their wallet), so create/import here and let the user hit Run. Prefer expect-event cells so get_notebook_handoff surfaces the logs backends must index. Numbers in block args are strings in base units (wei). Addresses/ABIs come from the project address book — add_contract can fetch verified ABIs by address.`;
+Notes: live wallet execution happens in the user's browser; simulate_notebook is the headless dry-run (requires anvil on the server). Prefer expect-event cells so get_notebook_handoff surfaces the logs backends must index. Numbers in block args are strings in base units (wei). Addresses/ABIs come from the project address book — add_contract can fetch verified ABIs by address.`;
 
 // --- JSON-RPC plumbing --------------------------------------------------------
 
@@ -375,6 +376,35 @@ const TOOLS: ToolDef[] = [
           url: notebookUrl(brief.projectId, brief.notebookId),
         },
       };
+    },
+  },
+  {
+    name: "simulate_notebook",
+    description:
+      "Stateful dry-run of a notebook: spawn ephemeral anvil --fork-url using the project's RPC, impersonate writes (sender groups / optional `as` address), discard the fork. No private keys. Multi-step flows accumulate state (unlike eth_call). Use after create/update_notebook_blocks to verify expects before sharing. Requires anvil (Foundry) on the server. Viewer+.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        notebook_id: { type: "string" },
+        as: {
+          type: "string",
+          description:
+            "Default EOA for writes not inside a sender group (0x…). Sender groups still override.",
+        },
+        timeout_ms: {
+          type: "number",
+          description: "Overall timeout in ms (default 120000, max 600000)",
+        },
+      },
+      required: ["notebook_id"],
+      additionalProperties: false,
+    },
+    handler: async (ctx, args) => {
+      const result = await simulateNotebookOnFork(ctx, str(args, "notebook_id"), {
+        as: args.as,
+        timeoutMs: args.timeout_ms,
+      });
+      return { json: result };
     },
   },
 ];
