@@ -3,11 +3,12 @@
 import { use, useCallback, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useDropzone } from "react-dropzone";
-import { FileJson, ListChecks, Pencil, Trash2, Upload } from "lucide-react";
+import { Download, FileJson, ListChecks, Pencil, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useContracts, useProject } from "@/lib/hooks";
 import { getReadFunctions, getWriteFunctions, validateAbi } from "@/lib/abi";
+import { downloadJson, downloadZip, safeFilename } from "@/lib/download";
 import type { ContractEntry } from "@/lib/types";
 import {
   AbiConflictDialog,
@@ -30,6 +31,36 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+
+/** One ABI JSON file name per contract; disambiguate collisions with a suffix. */
+function abiExportName(contract: ContractEntry, used: Set<string>): string {
+  let base = `${safeFilename(contract.name, "contract")}.json`;
+  if (!used.has(base.toLowerCase())) {
+    used.add(base.toLowerCase());
+    return base;
+  }
+  const stem = safeFilename(contract.name, "contract");
+  const addr = contract.address ? contract.address.slice(2, 8) : contract.id.slice(0, 6);
+  base = `${stem}_${addr}.json`;
+  used.add(base.toLowerCase());
+  return base;
+}
+
+function exportContractAbi(contract: ContractEntry): void {
+  const name = `${safeFilename(contract.name, "contract")}.json`;
+  downloadJson(name, contract.abi);
+}
+
+function exportAllAbis(projectName: string, contracts: ContractEntry[]): void {
+  if (contracts.length === 0) return;
+  const used = new Set<string>();
+  const entries = contracts.map((c) => ({
+    name: abiExportName(c, used),
+    data: JSON.stringify(c.abi, null, 2) + "\n",
+  }));
+  const zipName = `${safeFilename(projectName, "project")}-abis.zip`;
+  downloadZip(zipName, entries);
+}
 
 function EditContractDialog({
   contract,
@@ -124,6 +155,15 @@ function ContractRow({ contract }: { contract: ContractEntry }) {
       <Badge variant="outline" className="hidden text-xs md:inline-flex">
         {writes} writes
       </Badge>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Download ${contract.name} ABI`}
+        title="Download ABI JSON"
+        onClick={() => exportContractAbi(contract)}
+      >
+        <Download className="text-muted-foreground" />
+      </Button>
       <Button variant="ghost" size="icon-sm" onClick={() => setEditing(true)}>
         <Pencil />
       </Button>
@@ -229,12 +269,29 @@ export default function ContractsPage({ params }: { params: Promise<{ id: string
             addresses for chain {project?.chainId}.
           </p>
         </div>
-        {missingCount > 0 && (
-          <Button variant="outline" onClick={() => setMassFillOpen(true)}>
-            <ListChecks data-icon="inline-start" />
-            Fill {missingCount} missing {missingCount === 1 ? "address" : "addresses"}
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {contracts && contracts.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                exportAllAbis(project?.name ?? "project", contracts);
+                toast.success(
+                  `Exported ${contracts.length} ${contracts.length === 1 ? "ABI" : "ABIs"} as a ZIP`,
+                );
+              }}
+              title="Download every contract ABI as a ZIP of JSON files"
+            >
+              <Download data-icon="inline-start" />
+              Export all
+            </Button>
+          )}
+          {missingCount > 0 && (
+            <Button variant="outline" onClick={() => setMassFillOpen(true)}>
+              <ListChecks data-icon="inline-start" />
+              Fill {missingCount} missing {missingCount === 1 ? "address" : "addresses"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {project && <LookupContract project={project} contracts={contracts ?? []} />}
